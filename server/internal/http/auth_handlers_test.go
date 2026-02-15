@@ -32,6 +32,12 @@ type authPaginated[T any] struct {
 	Total   int `json:"total"`
 }
 
+type authMenuRoute struct {
+	Path     string          `json:"path"`
+	Name     string          `json:"name"`
+	Children []authMenuRoute `json:"children"`
+}
+
 func TestAuthRoutesSmoke(t *testing.T) {
 	t.Parallel()
 
@@ -198,6 +204,33 @@ func TestAuthRoutesSmoke(t *testing.T) {
 		t.Fatalf("admin buttons missing member:create: %+v", adminInfo.Data.Buttons)
 	}
 
+	adminMenus := performJSONRequestWithHeaders[[]authMenuRoute](
+		t,
+		router,
+		http.MethodGet,
+		"/api/v3/system/menus",
+		nil,
+		map[string]string{
+			"Authorization": adminLogin.Data.Token,
+		},
+	)
+	if adminMenus.Code != 200 {
+		t.Fatalf("admin menus code = %d, msg = %s", adminMenus.Code, adminMenus.Msg)
+	}
+	if !containsMenuPath(adminMenus.Data, "/operations") {
+		t.Fatalf("admin menus missing /operations")
+	}
+	adminSystem := findMenuByPath(adminMenus.Data, "/system")
+	if adminSystem == nil {
+		t.Fatalf("admin menus missing /system")
+	}
+	if containsMenuPath(adminSystem.Children, "role") {
+		t.Fatalf("admin system children should not include role")
+	}
+	if containsMenuPath(adminSystem.Children, "menu") {
+		t.Fatalf("admin system children should not include menu")
+	}
+
 	users := performJSONRequestWithHeaders[authPaginated[userListItem]](
 		t,
 		router,
@@ -236,6 +269,30 @@ func TestAuthRoutesSmoke(t *testing.T) {
 	}
 	if len(roles.Data.Records) != 2 {
 		t.Fatalf("role list records length = %d, want 2", len(roles.Data.Records))
+	}
+
+	superMenus := performJSONRequestWithHeaders[[]authMenuRoute](
+		t,
+		router,
+		http.MethodGet,
+		"/api/v3/system/menus",
+		nil,
+		map[string]string{
+			"Authorization": superLogin.Data.Token,
+		},
+	)
+	if superMenus.Code != 200 {
+		t.Fatalf("super menus code = %d, msg = %s", superMenus.Code, superMenus.Msg)
+	}
+	superSystem := findMenuByPath(superMenus.Data, "/system")
+	if superSystem == nil {
+		t.Fatalf("super menus missing /system")
+	}
+	if !containsMenuPath(superSystem.Children, "role") {
+		t.Fatalf("super system children missing role")
+	}
+	if !containsMenuPath(superSystem.Children, "menu") {
+		t.Fatalf("super system children missing menu")
 	}
 }
 
@@ -288,4 +345,17 @@ func containsString(items []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func containsMenuPath(items []authMenuRoute, targetPath string) bool {
+	return findMenuByPath(items, targetPath) != nil
+}
+
+func findMenuByPath(items []authMenuRoute, targetPath string) *authMenuRoute {
+	for i := range items {
+		if items[i].Path == targetPath {
+			return &items[i]
+		}
+	}
+	return nil
 }

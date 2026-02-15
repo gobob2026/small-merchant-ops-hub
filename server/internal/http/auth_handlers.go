@@ -56,6 +56,29 @@ type paginatedData struct {
 	Total   int         `json:"total"`
 }
 
+type authMarkItem struct {
+	Title    string `json:"title"`
+	AuthMark string `json:"authMark"`
+}
+
+type menuMeta struct {
+	Title     string         `json:"title"`
+	Icon      string         `json:"icon,omitempty"`
+	KeepAlive bool           `json:"keepAlive,omitempty"`
+	IsHide    bool           `json:"isHide,omitempty"`
+	IsHideTab bool           `json:"isHideTab,omitempty"`
+	Roles     []string       `json:"roles,omitempty"`
+	AuthList  []authMarkItem `json:"authList,omitempty"`
+}
+
+type menuRoute struct {
+	Path      string      `json:"path"`
+	Name      string      `json:"name,omitempty"`
+	Component string      `json:"component,omitempty"`
+	Meta      menuMeta    `json:"meta"`
+	Children  []menuRoute `json:"children,omitempty"`
+}
+
 type authSessionEntry struct {
 	Session   authSession
 	ExpiresAt time.Time
@@ -72,6 +95,7 @@ func registerAuthRoutes(router *gin.Engine) {
 	router.GET("/api/user/info", userInfoHandler)
 	router.GET("/api/user/list", userListHandler)
 	router.GET("/api/role/list", roleListHandler)
+	router.GET("/api/v3/system/menus", systemMenuListHandler)
 }
 
 func loginHandler(c *gin.Context) {
@@ -230,6 +254,17 @@ func roleListHandler(c *gin.Context) {
 	})
 }
 
+func systemMenuListHandler(c *gin.Context) {
+	session, found := currentSession(c)
+	if !found {
+		fail(c, 401, "unauthorized")
+		return
+	}
+
+	menus := filterMenuRoutesByRoles(baseSystemMenus(), session.Roles)
+	ok(c, menus)
+}
+
 func resolveSessionByUserName(userName string) (authSession, bool) {
 	switch strings.ToLower(strings.TrimSpace(userName)) {
 	case "super":
@@ -351,4 +386,158 @@ func paginate[T any](items []T, current, size int) []T {
 		end = len(items)
 	}
 	return items[start:end]
+}
+
+func baseSystemMenus() []menuRoute {
+	return []menuRoute{
+		{
+			Path:      "/dashboard",
+			Name:      "Dashboard",
+			Component: "/index/index",
+			Meta: menuMeta{
+				Title: "仪表盘",
+				Icon:  "ri:dashboard-3-line",
+				Roles: []string{"R_SUPER", "R_ADMIN"},
+			},
+			Children: []menuRoute{
+				{
+					Path:      "analysis",
+					Name:      "Analysis",
+					Component: "/dashboard/analysis",
+					Meta: menuMeta{
+						Title:     "分析页",
+						Icon:      "ri:line-chart-line",
+						KeepAlive: true,
+						Roles:     []string{"R_SUPER", "R_ADMIN"},
+					},
+				},
+			},
+		},
+		{
+			Path:      "/operations",
+			Name:      "Operations",
+			Component: "/index/index",
+			Meta: menuMeta{
+				Title: "商家运营",
+				Icon:  "ri:store-2-line",
+				Roles: []string{"R_SUPER", "R_ADMIN"},
+			},
+			Children: []menuRoute{
+				{
+					Path:      "hub",
+					Name:      "MerchantOpsHub",
+					Component: "/operations/hub",
+					Meta: menuMeta{
+						Title:     "运营台",
+						Icon:      "ri:line-chart-line",
+						KeepAlive: false,
+						Roles:     []string{"R_SUPER", "R_ADMIN"},
+						AuthList: []authMarkItem{
+							{Title: "新增会员", AuthMark: "member:create"},
+							{Title: "新增订单", AuthMark: "order:create"},
+							{Title: "新增活动", AuthMark: "campaign:create"},
+							{Title: "查看跟进名单", AuthMark: "followup:view"},
+							{Title: "导出归因报表", AuthMark: "report:export"},
+						},
+					},
+				},
+			},
+		},
+		{
+			Path:      "/system",
+			Name:      "System",
+			Component: "/index/index",
+			Meta: menuMeta{
+				Title: "系统管理",
+				Icon:  "ri:user-3-line",
+				Roles: []string{"R_SUPER", "R_ADMIN"},
+			},
+			Children: []menuRoute{
+				{
+					Path:      "user",
+					Name:      "User",
+					Component: "/system/user",
+					Meta: menuMeta{
+						Title:     "用户管理",
+						Icon:      "ri:user-line",
+						KeepAlive: true,
+						Roles:     []string{"R_SUPER", "R_ADMIN"},
+					},
+				},
+				{
+					Path:      "role",
+					Name:      "Role",
+					Component: "/system/role",
+					Meta: menuMeta{
+						Title:     "角色管理",
+						Icon:      "ri:user-settings-line",
+						KeepAlive: true,
+						Roles:     []string{"R_SUPER"},
+					},
+				},
+				{
+					Path:      "user-center",
+					Name:      "UserCenter",
+					Component: "/system/user-center",
+					Meta: menuMeta{
+						Title:     "个人中心",
+						Icon:      "ri:user-line",
+						IsHide:    true,
+						IsHideTab: true,
+						KeepAlive: true,
+						Roles:     []string{"R_SUPER", "R_ADMIN"},
+					},
+				},
+				{
+					Path:      "menu",
+					Name:      "Menus",
+					Component: "/system/menu",
+					Meta: menuMeta{
+						Title:     "菜单管理",
+						Icon:      "ri:menu-line",
+						KeepAlive: true,
+						Roles:     []string{"R_SUPER"},
+						AuthList: []authMarkItem{
+							{Title: "新增", AuthMark: "add"},
+							{Title: "编辑", AuthMark: "edit"},
+							{Title: "删除", AuthMark: "delete"},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func filterMenuRoutesByRoles(routes []menuRoute, roles []string) []menuRoute {
+	filtered := make([]menuRoute, 0, len(routes))
+	for _, route := range routes {
+		if !hasRoleAccess(route.Meta.Roles, roles) {
+			continue
+		}
+
+		current := route
+		if len(route.Children) > 0 {
+			current.Children = filterMenuRoutesByRoles(route.Children, roles)
+			if len(current.Children) == 0 {
+				continue
+			}
+		}
+		filtered = append(filtered, current)
+	}
+	return filtered
+}
+
+func hasRoleAccess(requiredRoles []string, userRoles []string) bool {
+	if len(requiredRoles) == 0 {
+		return true
+	}
+	for _, role := range requiredRoles {
+		for _, userRole := range userRoles {
+			if role == userRole {
+				return true
+			}
+		}
+	}
+	return false
 }
