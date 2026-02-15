@@ -63,6 +63,7 @@
   import { useI18n } from 'vue-i18n'
   import { useRouter } from 'vue-router'
   import { ElMessageBox } from 'element-plus'
+  import { fetchLogout } from '@/api/auth'
   import { useUserStore } from '@/store/modules/user'
   import { WEB_LINKS } from '@/utils/constants'
   import { mittBus } from '@/utils/sys'
@@ -115,7 +116,8 @@
         confirmButtonText: t('common.confirm'),
         cancelButtonText: t('common.cancel'),
         customClass: 'login-out-dialog'
-      }).then(() => {
+      }).then(async () => {
+        await fetchLogout().catch(() => undefined)
         userStore.logOut()
       })
     }, 200)

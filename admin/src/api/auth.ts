@@ -27,3 +27,12 @@ export function fetchGetUserInfo() {
     // }
   })
 }
+
+/**
+ * 退出登录（服务端清理会话）
+ */
+export function fetchLogout() {
+  return request.post<{ success: boolean }>({
+    url: '/api/auth/logout'
+  })
+}

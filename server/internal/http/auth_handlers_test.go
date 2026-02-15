@@ -132,6 +132,49 @@ func TestAuthRoutesSmoke(t *testing.T) {
 		t.Fatalf("super buttons missing report:export: %+v", superInfo.Data.Buttons)
 	}
 
+	logoutResult := performJSONRequestWithHeaders[map[string]bool](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/logout",
+		nil,
+		map[string]string{
+			"Authorization": superLogin.Data.Token,
+		},
+	)
+	if logoutResult.Code != 200 || !logoutResult.Data["success"] {
+		t.Fatalf("logout response invalid: code=%d data=%+v", logoutResult.Code, logoutResult.Data)
+	}
+	superInfoAfterLogout := performJSONRequestWithHeaders[map[string]interface{}](
+		t,
+		router,
+		http.MethodGet,
+		"/api/user/info",
+		nil,
+		map[string]string{
+			"Authorization": superLogin.Data.Token,
+		},
+	)
+	if superInfoAfterLogout.Code != 401 {
+		t.Fatalf("super info after logout code = %d, want 401", superInfoAfterLogout.Code)
+	}
+
+	logoutWithoutToken := performJSONRequestWithHeaders[map[string]bool](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/logout",
+		nil,
+		nil,
+	)
+	if logoutWithoutToken.Code != 200 || !logoutWithoutToken.Data["success"] {
+		t.Fatalf(
+			"logout without token response invalid: code=%d data=%+v",
+			logoutWithoutToken.Code,
+			logoutWithoutToken.Data,
+		)
+	}
+
 	originalTTL := authSessionTTL
 	authSessionTTL = -1 * time.Second
 	expiredLogin := performJSONRequestWithHeaders[authLoginData](
@@ -293,6 +336,21 @@ func TestAuthRoutesSmoke(t *testing.T) {
 	}
 	if containsMenuPath(userMenus.Data, "/system") {
 		t.Fatalf("user menus should not include /system")
+	}
+
+	superLogin = performJSONRequestWithHeaders[authLoginData](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]string{
+			"userName": "Super",
+			"password": "123456",
+		},
+		nil,
+	)
+	if superLogin.Code != 200 {
+		t.Fatalf("super relogin code = %d, msg = %s", superLogin.Code, superLogin.Msg)
 	}
 
 	users := performJSONRequestWithHeaders[authPaginated[userListItem]](

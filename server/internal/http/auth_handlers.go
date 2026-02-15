@@ -92,6 +92,7 @@ var (
 
 func registerAuthRoutes(router *gin.Engine) {
 	router.POST("/api/auth/login", loginHandler)
+	router.POST("/api/auth/logout", logoutHandler)
 	router.GET("/api/user/info", userInfoHandler)
 	router.GET("/api/user/list", userListHandler)
 	router.GET("/api/role/list", roleListHandler)
@@ -129,6 +130,16 @@ func loginHandler(c *gin.Context) {
 	ok(c, gin.H{
 		"token":        token,
 		"refreshToken": refreshToken,
+	})
+}
+
+func logoutHandler(c *gin.Context) {
+	token := parseAuthToken(c.GetHeader("Authorization"))
+	if token != "" {
+		removeSession(token)
+	}
+	ok(c, gin.H{
+		"success": true,
 	})
 }
 
