@@ -1,0 +1,84 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        if: ${{ hashFiles('server/go.mod') != '' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Test server
+        if: ${{ hashFiles('server/go.mod') != '' }}
+        run: |
+          cd server
+          go mod download
+          go test ./...
+
+      - name: Setup Node
+        if: ${{ hashFiles('client/package.json') != '' || hashFiles('admin/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build client
+        if: ${{ hashFiles('client/package.json') != '' }}
+        run: |
+          set -e
+          cd client
+          if [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            pnpm install --frozen-lockfile
+            pnpm run build
+          elif [ -f package-lock.json ]; then
+            npm ci
+            npm run build
+          else
+            npm install
+            npm run build
+          fi
+
+      - name: Build admin
+        if: ${{ hashFiles('admin/package.json') != '' }}
+        run: |
+          set -e
+          cd admin
+          if [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            pnpm install --frozen-lockfile
+            pnpm run build
+          elif [ -f package-lock.json ]; then
+            npm ci
+            npm run build
+          else
+            npm install
+            npm run build
+          fi
+
+  release:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
