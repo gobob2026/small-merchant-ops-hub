@@ -17,6 +17,7 @@ go run ./cmd/server
 - `GET /api/user/info` current user profile + roles/buttons (requires `Authorization` token)
 - `GET /api/user/list` system user list (requires `Authorization` token)
 - `GET /api/role/list` system role list (requires `Authorization` token)
+- Auth token session is in-memory with default 24h TTL
 - `GET /api/v1/members` list members
 - `POST /api/v1/members` create member
 - `GET /api/v1/orders` list orders

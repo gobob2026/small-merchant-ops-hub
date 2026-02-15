@@ -56,8 +56,14 @@ type paginatedData struct {
 	Total   int         `json:"total"`
 }
 
+type authSessionEntry struct {
+	Session   authSession
+	ExpiresAt time.Time
+}
+
 var (
-	authSessions   = map[string]authSession{}
+	authSessionTTL = 24 * time.Hour
+	authSessions   = map[string]authSessionEntry{}
 	authSessionsMu sync.RWMutex
 )
 
@@ -275,16 +281,33 @@ func currentSession(c *gin.Context) (authSession, bool) {
 	if token == "" {
 		return authSession{}, false
 	}
+
 	authSessionsMu.RLock()
-	defer authSessionsMu.RUnlock()
-	session, ok := authSessions[token]
-	return session, ok
+	entry, ok := authSessions[token]
+	authSessionsMu.RUnlock()
+	if !ok {
+		return authSession{}, false
+	}
+	if time.Now().After(entry.ExpiresAt) {
+		removeSession(token)
+		return authSession{}, false
+	}
+	return entry.Session, true
 }
 
 func saveSession(token string, session authSession) {
 	authSessionsMu.Lock()
 	defer authSessionsMu.Unlock()
-	authSessions[token] = session
+	authSessions[token] = authSessionEntry{
+		Session:   session,
+		ExpiresAt: time.Now().Add(authSessionTTL),
+	}
+}
+
+func removeSession(token string) {
+	authSessionsMu.Lock()
+	defer authSessionsMu.Unlock()
+	delete(authSessions, token)
 }
 
 func parseAuthToken(raw string) string {

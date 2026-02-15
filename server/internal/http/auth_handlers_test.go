@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"small-merchant-ops-hub-server/internal/cache"
 	"small-merchant-ops-hub-server/internal/config"
@@ -123,6 +124,37 @@ func TestAuthRoutesSmoke(t *testing.T) {
 	}
 	if !containsString(superInfo.Data.Buttons, "report:export") {
 		t.Fatalf("super buttons missing report:export: %+v", superInfo.Data.Buttons)
+	}
+
+	originalTTL := authSessionTTL
+	authSessionTTL = -1 * time.Second
+	expiredLogin := performJSONRequestWithHeaders[authLoginData](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]string{
+			"userName": "Super",
+			"password": "123456",
+		},
+		nil,
+	)
+	authSessionTTL = originalTTL
+	if expiredLogin.Code != 200 {
+		t.Fatalf("expired login code = %d, msg = %s", expiredLogin.Code, expiredLogin.Msg)
+	}
+	expiredInfo := performJSONRequestWithHeaders[map[string]interface{}](
+		t,
+		router,
+		http.MethodGet,
+		"/api/user/info",
+		nil,
+		map[string]string{
+			"Authorization": expiredLogin.Data.Token,
+		},
+	)
+	if expiredInfo.Code != 401 {
+		t.Fatalf("expired token code = %d, want 401", expiredInfo.Code)
 	}
 
 	adminLogin := performJSONRequestWithHeaders[authLoginData](
