@@ -1,6 +1,8 @@
 package http
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -123,8 +125,8 @@ func loginHandler(c *gin.Context) {
 		return
 	}
 
-	token := fmt.Sprintf("token-%s-%d", strings.ToLower(session.UserName), time.Now().UnixNano())
-	refreshToken := fmt.Sprintf("refresh-%d", time.Now().UnixNano())
+	token := newToken("token")
+	refreshToken := newToken("refresh")
 	saveSession(token, session)
 
 	ok(c, gin.H{
@@ -397,6 +399,14 @@ func paginate[T any](items []T, current, size int) []T {
 		end = len(items)
 	}
 	return items[start:end]
+}
+
+func newToken(prefix string) string {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err == nil {
+		return fmt.Sprintf("%s-%s", prefix, hex.EncodeToString(raw))
+	}
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
 func baseSystemMenus() []menuRoute {
