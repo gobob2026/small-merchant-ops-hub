@@ -34,7 +34,7 @@ func Open(cfg config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	if err := database.AutoMigrate(&KeyValue{}, &Member{}, &Order{}); err != nil {
+	if err := database.AutoMigrate(&KeyValue{}, &Member{}, &Order{}, &Campaign{}); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 	return database, nil

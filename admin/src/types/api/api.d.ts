@@ -167,7 +167,35 @@ declare namespace Api {
       revenueCents: number
       repurchaseCount: number
       repurchaseRate: number
+      activeCampaignCount: number
       channelBreakdown: ChannelBreakdown[]
+    }
+
+    interface Campaign {
+      id: number
+      name: string
+      channel: string
+      discountPct: number
+      status: 'draft' | 'active' | 'closed'
+      startAt?: string
+      endAt?: string
+      createdAt: string
+    }
+
+    interface FollowupItem {
+      memberId: number
+      memberName: string
+      phone: string
+      channel: string
+      paidOrderCount: number
+      paidAmountCents: number
+      lastPaidAt?: string
+      daysSinceLastPay: number
+    }
+
+    interface FollowupPayload {
+      daysWindow: number
+      items: FollowupItem[]
     }
 
     interface CreateMemberParams {
@@ -182,6 +210,21 @@ declare namespace Api {
       source: string
       status: 'pending' | 'paid' | 'refunded'
       orderNo?: string
+    }
+
+    interface CreateCampaignParams {
+      name: string
+      channel: string
+      discountPct: number
+      status: 'draft' | 'active' | 'closed'
+      startAt?: string
+      endAt?: string
+    }
+
+    interface FollowupQueryParams {
+      days?: number
+      limit?: number
+      channel?: string
     }
   }
 }

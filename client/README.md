@@ -15,4 +15,6 @@ npm run dev
 ## Available Flow
 - Create member (name/phone/channel)
 - Create order (member/amount/source/status)
-- View real-time summary (member count, revenue, repurchase rate)
+- Create campaign (channel/discount/status)
+- View repurchase follow-up list by day window
+- View real-time summary (member count, revenue, repurchase rate, active campaigns)

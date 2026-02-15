@@ -31,3 +31,23 @@ export function fetchCreateMerchantOrder(params: Api.MerchantOps.CreateOrderPara
     params
   })
 }
+
+export function fetchMerchantCampaigns() {
+  return request.get<Api.MerchantOps.Campaign[]>({
+    url: '/api/v1/campaigns'
+  })
+}
+
+export function fetchCreateMerchantCampaign(params: Api.MerchantOps.CreateCampaignParams) {
+  return request.post<Api.MerchantOps.Campaign>({
+    url: '/api/v1/campaigns',
+    params
+  })
+}
+
+export function fetchMerchantFollowups(params?: Api.MerchantOps.FollowupQueryParams) {
+  return request.get<Api.MerchantOps.FollowupPayload>({
+    url: '/api/v1/followups',
+    params
+  })
+}

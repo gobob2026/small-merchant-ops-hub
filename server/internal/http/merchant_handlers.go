@@ -31,6 +31,15 @@ type createOrderRequest struct {
 	Source      string `json:"source"`
 }
 
+type createCampaignRequest struct {
+	Name        string  `json:"name"`
+	Channel     string  `json:"channel"`
+	DiscountPct float64 `json:"discountPct"`
+	Status      string  `json:"status"`
+	StartAt     string  `json:"startAt"`
+	EndAt       string  `json:"endAt"`
+}
+
 type memberResponse struct {
 	ID        uint      `json:"id"`
 	Name      string    `json:"name"`
@@ -51,14 +60,42 @@ type orderResponse struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 }
 
+type campaignResponse struct {
+	ID          uint       `json:"id"`
+	Name        string     `json:"name"`
+	Channel     string     `json:"channel"`
+	DiscountPct float64    `json:"discountPct"`
+	Status      string     `json:"status"`
+	StartAt     *time.Time `json:"startAt"`
+	EndAt       *time.Time `json:"endAt"`
+	CreatedAt   time.Time  `json:"createdAt"`
+}
+
+type followupResponse struct {
+	DaysWindow int                    `json:"daysWindow"`
+	Items      []followupMemberResult `json:"items"`
+}
+
+type followupMemberResult struct {
+	MemberID         uint       `json:"memberId"`
+	MemberName       string     `json:"memberName"`
+	Phone            string     `json:"phone"`
+	Channel          string     `json:"channel"`
+	PaidOrderCount   int64      `json:"paidOrderCount"`
+	PaidAmountCents  int64      `json:"paidAmountCents"`
+	LastPaidAt       *time.Time `json:"lastPaidAt"`
+	DaysSinceLastPay int        `json:"daysSinceLastPay"`
+}
+
 type summaryResponse struct {
-	MemberCount      int64             `json:"memberCount"`
-	OrderCount       int64             `json:"orderCount"`
-	PaidOrderCount   int64             `json:"paidOrderCount"`
-	RevenueCents     int64             `json:"revenueCents"`
-	RepurchaseCount  int64             `json:"repurchaseCount"`
-	RepurchaseRate   float64           `json:"repurchaseRate"`
-	ChannelBreakdown []channelResponse `json:"channelBreakdown"`
+	MemberCount         int64             `json:"memberCount"`
+	OrderCount          int64             `json:"orderCount"`
+	PaidOrderCount      int64             `json:"paidOrderCount"`
+	RevenueCents        int64             `json:"revenueCents"`
+	RepurchaseCount     int64             `json:"repurchaseCount"`
+	RepurchaseRate      float64           `json:"repurchaseRate"`
+	ActiveCampaignCount int64             `json:"activeCampaignCount"`
+	ChannelBreakdown    []channelResponse `json:"channelBreakdown"`
 }
 
 type channelResponse struct {
@@ -75,6 +112,10 @@ func registerMerchantRoutes(router *gin.Engine, database *gorm.DB, cacheStore ca
 		api.GET("/orders", listOrdersHandler(database))
 		api.POST("/orders", createOrderHandler(database, cacheStore))
 
+		api.GET("/campaigns", listCampaignsHandler(database))
+		api.POST("/campaigns", createCampaignHandler(database, cacheStore))
+
+		api.GET("/followups", listFollowupsHandler(database))
 		api.GET("/summary", summaryHandler(database, cacheStore))
 	}
 }
@@ -212,18 +253,7 @@ func createOrderHandler(database *gorm.DB, cacheStore cache.Store) gin.HandlerFu
 		}
 
 		_ = cacheStore.Delete(ctx, summaryCacheKey)
-
-		ok(c, orderResponse{
-			ID:          order.ID,
-			OrderNo:     order.OrderNo,
-			MemberID:    order.MemberID,
-			MemberName:  member.Name,
-			AmountCents: order.AmountCents,
-			Status:      order.Status,
-			Source:      order.Source,
-			PaidAt:      order.PaidAt,
-			CreatedAt:   order.CreatedAt,
-		})
+		ok(c, toOrderResponse(order, member.Name))
 	}
 }
 
@@ -248,20 +278,186 @@ func listOrdersHandler(database *gorm.DB) gin.HandlerFunc {
 
 		result := make([]orderResponse, 0, len(orders))
 		for _, order := range orders {
-			result = append(result, orderResponse{
-				ID:          order.ID,
-				OrderNo:     order.OrderNo,
-				MemberID:    order.MemberID,
-				MemberName:  order.Member.Name,
-				AmountCents: order.AmountCents,
-				Status:      order.Status,
-				Source:      order.Source,
-				PaidAt:      order.PaidAt,
-				CreatedAt:   order.CreatedAt,
-			})
+			result = append(result, toOrderResponse(order, order.Member.Name))
 		}
 
 		ok(c, result)
+	}
+}
+
+func createCampaignHandler(database *gorm.DB, cacheStore cache.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req createCampaignRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, 400, "invalid campaign payload")
+			return
+		}
+
+		req.Name = strings.TrimSpace(req.Name)
+		req.Channel = strings.TrimSpace(req.Channel)
+		req.Status = strings.TrimSpace(strings.ToLower(req.Status))
+
+		if req.Name == "" || req.Channel == "" {
+			fail(c, 400, "name and channel are required")
+			return
+		}
+		if req.DiscountPct <= 0 || req.DiscountPct > 100 {
+			fail(c, 400, "discountPct must be in (0, 100]")
+			return
+		}
+		if req.Status == "" {
+			req.Status = "active"
+		}
+		if !isSupportedCampaignStatus(req.Status) {
+			fail(c, 400, "status must be draft, active or closed")
+			return
+		}
+
+		startAt, err := parseOptionalRFC3339(req.StartAt)
+		if err != nil {
+			fail(c, 400, "startAt must be RFC3339 format")
+			return
+		}
+		endAt, err := parseOptionalRFC3339(req.EndAt)
+		if err != nil {
+			fail(c, 400, "endAt must be RFC3339 format")
+			return
+		}
+		if startAt != nil && endAt != nil && endAt.Before(*startAt) {
+			fail(c, 400, "endAt cannot be earlier than startAt")
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		defer cancel()
+
+		campaign := db.Campaign{
+			Name:        req.Name,
+			Channel:     req.Channel,
+			DiscountPct: req.DiscountPct,
+			Status:      req.Status,
+			StartAt:     startAt,
+			EndAt:       endAt,
+		}
+		if err := database.WithContext(ctx).Create(&campaign).Error; err != nil {
+			fail(c, 500, "create campaign failed")
+			return
+		}
+
+		_ = cacheStore.Delete(ctx, summaryCacheKey)
+		ok(c, toCampaignResponse(campaign))
+	}
+}
+
+func listCampaignsHandler(database *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		defer cancel()
+
+		limit := parseLimit(c.Query("limit"), 20)
+		status := strings.TrimSpace(strings.ToLower(c.Query("status")))
+		channel := strings.TrimSpace(c.Query("channel"))
+
+		query := database.WithContext(ctx).Model(&db.Campaign{}).Order("id DESC").Limit(limit)
+		if status != "" {
+			query = query.Where("status = ?", status)
+		}
+		if channel != "" {
+			query = query.Where("channel = ?", channel)
+		}
+
+		campaigns := make([]db.Campaign, 0, limit)
+		if err := query.Find(&campaigns).Error; err != nil {
+			fail(c, 500, "list campaigns failed")
+			return
+		}
+
+		result := make([]campaignResponse, 0, len(campaigns))
+		for _, campaign := range campaigns {
+			result = append(result, toCampaignResponse(campaign))
+		}
+		ok(c, result)
+	}
+}
+
+func listFollowupsHandler(database *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		defer cancel()
+
+		days := parseDays(c.Query("days"), 30)
+		limit := parseLimit(c.Query("limit"), 50)
+		channel := strings.TrimSpace(c.Query("channel"))
+		cutoff := time.Now().AddDate(0, 0, -days)
+
+		type followupRow struct {
+			MemberID        uint   `gorm:"column:member_id"`
+			MemberName      string `gorm:"column:member_name"`
+			Phone           string `gorm:"column:phone"`
+			Channel         string `gorm:"column:channel"`
+			PaidOrderCount  int64  `gorm:"column:paid_order_count"`
+			PaidAmountCents int64  `gorm:"column:paid_amount_cents"`
+			LastPaidUnix    int64  `gorm:"column:last_paid_unix"`
+		}
+
+		rows := make([]followupRow, 0, limit)
+		query := database.WithContext(ctx).
+			Table("members AS m").
+			Select(`
+				m.id AS member_id,
+				m.name AS member_name,
+				m.phone AS phone,
+				m.channel AS channel,
+				COUNT(o.id) AS paid_order_count,
+				COALESCE(SUM(o.amount_cents), 0) AS paid_amount_cents,
+				MAX(CAST(strftime('%s', o.paid_at) AS INTEGER)) AS last_paid_unix
+			`).
+			Joins("LEFT JOIN orders AS o ON o.member_id = m.id AND o.status = ?", "paid").
+			Group("m.id, m.name, m.phone, m.channel").
+			Having("COUNT(o.id) = 1 OR MAX(CAST(strftime('%s', o.paid_at) AS INTEGER)) <= ?", cutoff.Unix()).
+			Order("MAX(CAST(strftime('%s', o.paid_at) AS INTEGER)) ASC").
+			Limit(limit)
+
+		if channel != "" {
+			query = query.Where("m.channel = ?", channel)
+		}
+
+		if err := query.Scan(&rows).Error; err != nil {
+			fail(c, 500, "list followups failed")
+			return
+		}
+
+		items := make([]followupMemberResult, 0, len(rows))
+		for _, row := range rows {
+			var lastPaidAt *time.Time
+			if row.LastPaidUnix > 0 {
+				value := time.Unix(row.LastPaidUnix, 0)
+				lastPaidAt = &value
+			}
+
+			daysSinceLastPay := 0
+			if lastPaidAt != nil {
+				daysSinceLastPay = int(time.Since(*lastPaidAt).Hours() / 24)
+				if daysSinceLastPay < 0 {
+					daysSinceLastPay = 0
+				}
+			}
+			items = append(items, followupMemberResult{
+				MemberID:         row.MemberID,
+				MemberName:       row.MemberName,
+				Phone:            row.Phone,
+				Channel:          row.Channel,
+				PaidOrderCount:   row.PaidOrderCount,
+				PaidAmountCents:  row.PaidAmountCents,
+				LastPaidAt:       lastPaidAt,
+				DaysSinceLastPay: daysSinceLastPay,
+			})
+		}
+
+		ok(c, followupResponse{
+			DaysWindow: days,
+			Items:      items,
+		})
 	}
 }
 
@@ -284,6 +480,12 @@ func summaryHandler(database *gorm.DB, cacheStore cache.Store) gin.HandlerFunc {
 		var orderCount int64
 		if err := database.WithContext(ctx).Model(&db.Order{}).Count(&orderCount).Error; err != nil {
 			fail(c, 500, "count orders failed")
+			return
+		}
+
+		var activeCampaignCount int64
+		if err := database.WithContext(ctx).Model(&db.Campaign{}).Where("status = ?", "active").Count(&activeCampaignCount).Error; err != nil {
+			fail(c, 500, "count active campaigns failed")
 			return
 		}
 
@@ -343,13 +545,14 @@ func summaryHandler(database *gorm.DB, cacheStore cache.Store) gin.HandlerFunc {
 		}
 
 		result := summaryResponse{
-			MemberCount:      memberCount,
-			OrderCount:       orderCount,
-			PaidOrderCount:   paid.PaidOrderCount,
-			RevenueCents:     paid.RevenueCents,
-			RepurchaseCount:  repurchaseCount,
-			RepurchaseRate:   repurchaseRate,
-			ChannelBreakdown: channelBreakdown,
+			MemberCount:         memberCount,
+			OrderCount:          orderCount,
+			PaidOrderCount:      paid.PaidOrderCount,
+			RevenueCents:        paid.RevenueCents,
+			RepurchaseCount:     repurchaseCount,
+			RepurchaseRate:      repurchaseRate,
+			ActiveCampaignCount: activeCampaignCount,
+			ChannelBreakdown:    channelBreakdown,
 		}
 
 		setSummaryToCache(ctx, cacheStore, result)
@@ -364,6 +567,33 @@ func toMemberResponse(member db.Member) memberResponse {
 		Phone:     member.Phone,
 		Channel:   member.Channel,
 		CreatedAt: member.CreatedAt,
+	}
+}
+
+func toOrderResponse(order db.Order, memberName string) orderResponse {
+	return orderResponse{
+		ID:          order.ID,
+		OrderNo:     order.OrderNo,
+		MemberID:    order.MemberID,
+		MemberName:  memberName,
+		AmountCents: order.AmountCents,
+		Status:      order.Status,
+		Source:      order.Source,
+		PaidAt:      order.PaidAt,
+		CreatedAt:   order.CreatedAt,
+	}
+}
+
+func toCampaignResponse(campaign db.Campaign) campaignResponse {
+	return campaignResponse{
+		ID:          campaign.ID,
+		Name:        campaign.Name,
+		Channel:     campaign.Channel,
+		DiscountPct: campaign.DiscountPct,
+		Status:      campaign.Status,
+		StartAt:     campaign.StartAt,
+		EndAt:       campaign.EndAt,
+		CreatedAt:   campaign.CreatedAt,
 	}
 }
 
@@ -384,6 +614,23 @@ func parseLimit(raw string, fallback int) int {
 	return value
 }
 
+func parseDays(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	if value < 1 {
+		return 1
+	}
+	if value > 365 {
+		return 365
+	}
+	return value
+}
+
 func parseUint(raw string) uint {
 	if raw == "" {
 		return 0
@@ -395,9 +642,30 @@ func parseUint(raw string) uint {
 	return uint(value)
 }
 
+func parseOptionalRFC3339(raw string) (*time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, err
+	}
+	return &value, nil
+}
+
 func isSupportedOrderStatus(status string) bool {
 	switch status {
 	case "pending", "paid", "refunded":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedCampaignStatus(status string) bool {
+	switch status {
+	case "draft", "active", "closed":
 		return true
 	default:
 		return false

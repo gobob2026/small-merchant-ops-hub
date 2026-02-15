@@ -17,6 +17,9 @@ go run ./cmd/server
 - `POST /api/v1/members` create member
 - `GET /api/v1/orders` list orders
 - `POST /api/v1/orders` create order
+- `GET /api/v1/campaigns` list campaigns
+- `POST /api/v1/campaigns` create campaign
+- `GET /api/v1/followups` list repurchase follow-up members
 - `GET /api/v1/summary` merchant KPI summary
 
 All `/api/v1/*` endpoints return:

@@ -35,3 +35,16 @@ type Order struct {
 	UpdatedAt   time.Time
 	Member      Member `gorm:"foreignKey:MemberID"`
 }
+
+// Campaign represents a repurchase or growth campaign.
+type Campaign struct {
+	ID          uint       `gorm:"primaryKey"`
+	Name        string     `gorm:"size:120;not null"`
+	Channel     string     `gorm:"size:30;not null"`
+	DiscountPct float64    `gorm:"not null"`
+	Status      string     `gorm:"size:20;index;not null"`
+	StartAt     *time.Time `gorm:"index"`
+	EndAt       *time.Time `gorm:"index"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}

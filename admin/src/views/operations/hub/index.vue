@@ -1,7 +1,7 @@
 <template>
   <div class="merchant-ops-page">
     <h1 class="page-title">商家运营台</h1>
-    <p class="page-subtitle">会员、订单、复购数据统一操作与查看</p>
+    <p class="page-subtitle">会员、订单、活动、复购跟进统一操作与查看</p>
 
     <ElRow :gutter="16" class="mb-4">
       <ElCol :xs="24" :sm="12" :lg="6">
@@ -31,7 +31,37 @@
     </ElRow>
 
     <ElRow :gutter="16" class="mb-4">
-      <ElCol :xs="24" :lg="12">
+      <ElCol :xs="24" :sm="12" :lg="6">
+        <ElCard class="metric-card">
+          <p class="metric-label">活跃活动</p>
+          <h3>{{ summary.activeCampaignCount }}</h3>
+        </ElCard>
+      </ElCol>
+      <ElCol :xs="24" :sm="12" :lg="6">
+        <ElCard class="metric-card">
+          <p class="metric-label">GMV</p>
+          <h3>{{ formatAmount(summary.revenueCents) }}</h3>
+        </ElCard>
+      </ElCol>
+      <ElCol :xs="24" :sm="12" :lg="12">
+        <ElCard class="metric-card">
+          <p class="metric-label">渠道分布</p>
+          <ElSpace wrap>
+            <ElTag
+              v-for="item in summary.channelBreakdown"
+              :key="item.channel"
+              type="success"
+              effect="light"
+            >
+              {{ item.channel }}: {{ item.memberCount }}
+            </ElTag>
+          </ElSpace>
+        </ElCard>
+      </ElCol>
+    </ElRow>
+
+    <ElRow :gutter="16" class="mb-4">
+      <ElCol :xs="24" :lg="8">
         <ElCard>
           <template #header>新增会员</template>
           <ElForm label-width="90px" @submit.prevent>
@@ -53,7 +83,7 @@
         </ElCard>
       </ElCol>
 
-      <ElCol :xs="24" :lg="12">
+      <ElCol :xs="24" :lg="8">
         <ElCard>
           <template #header>新增订单</template>
           <ElForm label-width="90px" @submit.prevent>
@@ -85,6 +115,45 @@
               </ElSelect>
             </ElFormItem>
             <ElButton type="primary" :loading="loading" @click="submitOrder">创建订单</ElButton>
+          </ElForm>
+        </ElCard>
+      </ElCol>
+
+      <ElCol :xs="24" :lg="8">
+        <ElCard>
+          <template #header>新增活动</template>
+          <ElForm label-width="90px" @submit.prevent>
+            <ElFormItem label="名称">
+              <ElInput
+                v-model.trim="campaignForm.name"
+                maxlength="120"
+                placeholder="请输入活动名称"
+              />
+            </ElFormItem>
+            <ElFormItem label="渠道">
+              <ElSelect v-model="campaignForm.channel" class="w-full">
+                <ElOption label="wechat" value="wechat" />
+                <ElOption label="douyin" value="douyin" />
+                <ElOption label="store" value="store" />
+              </ElSelect>
+            </ElFormItem>
+            <ElFormItem label="折扣(%)">
+              <ElInputNumber
+                v-model="campaignForm.discountPct"
+                :min="1"
+                :max="100"
+                :precision="1"
+                :step="0.5"
+              />
+            </ElFormItem>
+            <ElFormItem label="状态">
+              <ElSelect v-model="campaignForm.status" class="w-full">
+                <ElOption label="active" value="active" />
+                <ElOption label="draft" value="draft" />
+                <ElOption label="closed" value="closed" />
+              </ElSelect>
+            </ElFormItem>
+            <ElButton type="primary" :loading="loading" @click="submitCampaign">创建活动</ElButton>
           </ElForm>
         </ElCard>
       </ElCol>
@@ -125,27 +194,62 @@
       </ElCol>
     </ElRow>
 
-    <ElCard>
-      <template #header>渠道分布</template>
-      <ElSpace wrap>
-        <ElTag
-          v-for="item in summary.channelBreakdown"
-          :key="item.channel"
-          type="success"
-          effect="light"
-        >
-          {{ item.channel }}: {{ item.memberCount }}
-        </ElTag>
-      </ElSpace>
-    </ElCard>
+    <ElRow :gutter="16">
+      <ElCol :xs="24" :lg="12">
+        <ElCard>
+          <template #header>活动列表</template>
+          <ElTable :data="campaigns" size="small">
+            <ElTableColumn prop="name" label="活动名" min-width="140" />
+            <ElTableColumn prop="channel" label="渠道" min-width="90" />
+            <ElTableColumn prop="discountPct" label="折扣(%)" min-width="100" />
+            <ElTableColumn prop="status" label="状态" min-width="90" />
+            <ElTableColumn label="创建时间" min-width="150">
+              <template #default="{ row }">
+                {{ formatTime(row.createdAt) }}
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </ElCard>
+      </ElCol>
+
+      <ElCol :xs="24" :lg="12">
+        <ElCard>
+          <template #header>
+            <div class="followup-head">
+              <span>复购跟进名单</span>
+              <ElSpace>
+                <span class="text-gray-500">窗口(天)</span>
+                <ElInputNumber v-model="followupDays" :min="1" :max="365" :step="1" size="small" />
+                <ElButton size="small" @click="refreshFollowups">刷新</ElButton>
+              </ElSpace>
+            </div>
+          </template>
+          <ElTable :data="followups.items" size="small">
+            <ElTableColumn prop="memberName" label="会员" min-width="100" />
+            <ElTableColumn prop="phone" label="手机号" min-width="120" />
+            <ElTableColumn prop="channel" label="渠道" min-width="90" />
+            <ElTableColumn prop="paidOrderCount" label="支付单数" min-width="90" />
+            <ElTableColumn label="最近支付" min-width="150">
+              <template #default="{ row }">
+                {{ row.lastPaidAt ? formatTime(row.lastPaidAt) : '-' }}
+              </template>
+            </ElTableColumn>
+            <ElTableColumn prop="daysSinceLastPay" label="距今天数" min-width="90" />
+          </ElTable>
+        </ElCard>
+      </ElCol>
+    </ElRow>
   </div>
 </template>
 
 <script setup lang="ts">
   import { ElMessage } from 'element-plus'
   import {
+    fetchCreateMerchantCampaign,
     fetchCreateMerchantMember,
     fetchCreateMerchantOrder,
+    fetchMerchantCampaigns,
+    fetchMerchantFollowups,
     fetchMerchantMembers,
     fetchMerchantOrders,
     fetchMerchantSummary
@@ -154,9 +258,15 @@
   defineOptions({ name: 'MerchantOpsHub' })
 
   const loading = ref(false)
+  const followupDays = ref(30)
 
   const members = ref<Api.MerchantOps.Member[]>([])
   const orders = ref<Api.MerchantOps.Order[]>([])
+  const campaigns = ref<Api.MerchantOps.Campaign[]>([])
+  const followups = ref<Api.MerchantOps.FollowupPayload>({
+    daysWindow: 30,
+    items: []
+  })
   const summary = ref<Api.MerchantOps.Summary>({
     memberCount: 0,
     orderCount: 0,
@@ -164,6 +274,7 @@
     revenueCents: 0,
     repurchaseCount: 0,
     repurchaseRate: 0,
+    activeCampaignCount: 0,
     channelBreakdown: []
   })
 
@@ -180,17 +291,32 @@
     status: 'paid' as Api.MerchantOps.CreateOrderParams['status']
   })
 
+  const campaignForm = reactive<Api.MerchantOps.CreateCampaignParams>({
+    name: '',
+    channel: 'wechat',
+    discountPct: 10,
+    status: 'active'
+  })
+
+  async function refreshFollowups() {
+    followups.value = await fetchMerchantFollowups({ days: followupDays.value, limit: 50 })
+  }
+
   async function refreshAll() {
     loading.value = true
     try {
-      const [summaryData, memberData, orderData] = await Promise.all([
+      const [summaryData, memberData, orderData, campaignData, followupData] = await Promise.all([
         fetchMerchantSummary(),
         fetchMerchantMembers(),
-        fetchMerchantOrders()
+        fetchMerchantOrders(),
+        fetchMerchantCampaigns(),
+        fetchMerchantFollowups({ days: followupDays.value, limit: 50 })
       ])
       summary.value = summaryData
       members.value = memberData
       orders.value = orderData
+      campaigns.value = campaignData
+      followups.value = followupData
       if (members.value.length > 0 && orderForm.memberId === 0) {
         orderForm.memberId = members.value[0].id
       }
@@ -250,6 +376,26 @@
     }
   }
 
+  async function submitCampaign() {
+    if (!campaignForm.name || !campaignForm.channel || !campaignForm.discountPct) {
+      ElMessage.warning('请填写完整活动信息')
+      return
+    }
+
+    loading.value = true
+    try {
+      await fetchCreateMerchantCampaign(campaignForm)
+      ElMessage.success('活动创建成功')
+      campaignForm.name = ''
+      campaignForm.discountPct = 10
+      await refreshAll()
+    } catch (error) {
+      ElMessage.error(error instanceof Error ? error.message : '活动创建失败')
+    } finally {
+      loading.value = false
+    }
+  }
+
   function formatAmount(cents: number) {
     return new Intl.NumberFormat('zh-CN', {
       style: 'currency',
@@ -289,6 +435,13 @@
         margin: 0;
         color: var(--art-text-gray-600);
       }
+    }
+
+    .followup-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
     }
   }
 </style>

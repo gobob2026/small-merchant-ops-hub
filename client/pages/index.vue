@@ -2,13 +2,36 @@
   <main class="page">
     <section class="hero">
       <h1>Small Merchant Ops Hub</h1>
-      <p>Complete flow: create members, place orders, and track repurchase in one screen.</p>
+      <p>Members, orders, campaigns, and repurchase follow-up in one workflow.</p>
       <p class="api-base">API: {{ apiBase }}</p>
     </section>
 
     <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
 
-    <section class="grid two-cols">
+    <section class="grid metrics">
+      <article class="metric">
+        <h3>Members</h3>
+        <strong>{{ summary.memberCount }}</strong>
+      </article>
+      <article class="metric">
+        <h3>Orders</h3>
+        <strong>{{ summary.orderCount }}</strong>
+      </article>
+      <article class="metric">
+        <h3>Paid Revenue</h3>
+        <strong>{{ formatAmount(summary.revenueCents) }}</strong>
+      </article>
+      <article class="metric">
+        <h3>Repurchase Rate</h3>
+        <strong>{{ summary.repurchaseRate.toFixed(2) }}%</strong>
+      </article>
+      <article class="metric">
+        <h3>Active Campaigns</h3>
+        <strong>{{ summary.activeCampaignCount }}</strong>
+      </article>
+    </section>
+
+    <section class="grid three-cols">
       <article class="panel">
         <h2>Create Member</h2>
         <form class="form" @submit.prevent="submitMember">
@@ -67,24 +90,43 @@
           <button type="submit" :disabled="loading || members.length === 0">Create Order</button>
         </form>
       </article>
-    </section>
 
-    <section class="grid metrics">
-      <article class="metric">
-        <h3>Members</h3>
-        <strong>{{ summary.memberCount }}</strong>
-      </article>
-      <article class="metric">
-        <h3>Orders</h3>
-        <strong>{{ summary.orderCount }}</strong>
-      </article>
-      <article class="metric">
-        <h3>Paid Revenue</h3>
-        <strong>{{ formatAmount(summary.revenueCents) }}</strong>
-      </article>
-      <article class="metric">
-        <h3>Repurchase Rate</h3>
-        <strong>{{ summary.repurchaseRate.toFixed(2) }}%</strong>
+      <article class="panel">
+        <h2>Create Campaign</h2>
+        <form class="form" @submit.prevent="submitCampaign">
+          <label>
+            Name
+            <input v-model.trim="campaignForm.name" type="text" maxlength="120" required />
+          </label>
+          <label>
+            Channel
+            <select v-model="campaignForm.channel">
+              <option value="wechat">wechat</option>
+              <option value="douyin">douyin</option>
+              <option value="store">store</option>
+            </select>
+          </label>
+          <label>
+            Discount (%)
+            <input
+              v-model.number="campaignForm.discountPct"
+              type="number"
+              min="1"
+              max="100"
+              step="0.5"
+              required
+            />
+          </label>
+          <label>
+            Status
+            <select v-model="campaignForm.status">
+              <option value="active">active</option>
+              <option value="draft">draft</option>
+              <option value="closed">closed</option>
+            </select>
+          </label>
+          <button type="submit" :disabled="loading">Create Campaign</button>
+        </form>
       </article>
     </section>
 
@@ -135,6 +177,59 @@
         </table>
       </article>
     </section>
+
+    <section class="grid two-cols">
+      <article class="panel">
+        <h2>Campaigns</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Channel</th>
+              <th>Discount</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="campaign in campaigns" :key="campaign.id">
+              <td>{{ campaign.name }}</td>
+              <td>{{ campaign.channel }}</td>
+              <td>{{ campaign.discountPct }}%</td>
+              <td>{{ campaign.status }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+      <article class="panel">
+        <div class="row-head">
+          <h2>Repurchase Follow-ups</h2>
+          <div class="inline-control">
+            <span>Days</span>
+            <input v-model.number="followupDays" type="number" min="1" max="365" />
+            <button type="button" @click="refreshFollowups" :disabled="loading">Refresh</button>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Channel</th>
+              <th>Paid Orders</th>
+              <th>Days Since Last</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in followups.items" :key="item.memberId">
+              <td>{{ item.memberName }}</td>
+              <td>{{ item.channel }}</td>
+              <td>{{ item.paidOrderCount }}</td>
+              <td>{{ item.daysSinceLastPay }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </section>
   </main>
 </template>
 
@@ -164,6 +259,28 @@ type Order = {
   createdAt: string
 }
 
+type Campaign = {
+  id: number
+  name: string
+  channel: string
+  discountPct: number
+  status: "draft" | "active" | "closed"
+  createdAt: string
+}
+
+type FollowupItem = {
+  memberId: number
+  memberName: string
+  channel: string
+  paidOrderCount: number
+  daysSinceLastPay: number
+}
+
+type FollowupPayload = {
+  daysWindow: number
+  items: FollowupItem[]
+}
+
 type ChannelBreakdown = {
   channel: string
   memberCount: number
@@ -176,6 +293,7 @@ type Summary = {
   revenueCents: number
   repurchaseCount: number
   repurchaseRate: number
+  activeCampaignCount: number
   channelBreakdown: ChannelBreakdown[]
 }
 
@@ -187,6 +305,13 @@ const errorMessage = ref("")
 
 const members = ref<Member[]>([])
 const orders = ref<Order[]>([])
+const campaigns = ref<Campaign[]>([])
+const followups = ref<FollowupPayload>({
+  daysWindow: 30,
+  items: []
+})
+const followupDays = ref(30)
+
 const summary = ref<Summary>({
   memberCount: 0,
   orderCount: 0,
@@ -194,6 +319,7 @@ const summary = ref<Summary>({
   revenueCents: 0,
   repurchaseCount: 0,
   repurchaseRate: 0,
+  activeCampaignCount: 0,
   channelBreakdown: []
 })
 
@@ -208,6 +334,13 @@ const orderForm = reactive({
   amountYuan: "",
   source: "wechat",
   status: "paid"
+})
+
+const campaignForm = reactive({
+  name: "",
+  channel: "wechat",
+  discountPct: 10,
+  status: "active" as "draft" | "active" | "closed"
 })
 
 async function requestApi<T>(path: string, options: Record<string, unknown> = {}) {
@@ -232,15 +365,37 @@ async function loadOrders() {
   orders.value = await requestApi<Order[]>("/api/v1/orders")
 }
 
+async function loadCampaigns() {
+  campaigns.value = await requestApi<Campaign[]>("/api/v1/campaigns")
+}
+
 async function loadSummary() {
   summary.value = await requestApi<Summary>("/api/v1/summary")
+}
+
+async function loadFollowups() {
+  followups.value = await requestApi<FollowupPayload>(
+    `/api/v1/followups?days=${encodeURIComponent(followupDays.value)}&limit=50`
+  )
 }
 
 async function refreshAll() {
   loading.value = true
   errorMessage.value = ""
   try {
-    await Promise.all([loadMembers(), loadOrders(), loadSummary()])
+    await Promise.all([loadMembers(), loadOrders(), loadCampaigns(), loadSummary(), loadFollowups()])
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Request failed"
+  } finally {
+    loading.value = false
+  }
+}
+
+async function refreshFollowups() {
+  loading.value = true
+  errorMessage.value = ""
+  try {
+    await loadFollowups()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Request failed"
   } finally {
@@ -297,6 +452,31 @@ async function submitOrder() {
   }
 }
 
+async function submitCampaign() {
+  loading.value = true
+  errorMessage.value = ""
+  try {
+    if (!campaignForm.name.trim()) {
+      throw new Error("Please enter a campaign name")
+    }
+    if (!campaignForm.discountPct || campaignForm.discountPct <= 0 || campaignForm.discountPct > 100) {
+      throw new Error("Please provide a valid discount")
+    }
+
+    await requestApi<Campaign>("/api/v1/campaigns", {
+      method: "POST",
+      body: campaignForm
+    })
+    campaignForm.name = ""
+    campaignForm.discountPct = 10
+    await refreshAll()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Create campaign failed"
+  } finally {
+    loading.value = false
+  }
+}
+
 function formatAmount(cents: number) {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -315,7 +495,7 @@ onMounted(() => {
 
 <style scoped>
 .page {
-  max-width: 1200px;
+  max-width: 1260px;
   margin: 0 auto;
   padding: 24px;
   font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
@@ -354,8 +534,12 @@ onMounted(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.three-cols {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .panel,
@@ -375,7 +559,7 @@ onMounted(() => {
 .metric strong {
   margin-top: 10px;
   display: block;
-  font-size: 24px;
+  font-size: 22px;
 }
 
 .form {
@@ -426,6 +610,32 @@ td {
 th {
   color: #6b7280;
   font-weight: 600;
+}
+
+.row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inline-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-control input {
+  width: 88px;
+}
+
+@media (max-width: 1100px) {
+  .three-cols {
+    grid-template-columns: 1fr;
+  }
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 960px) {
