@@ -132,4 +132,56 @@ declare namespace Api {
         Api.Common.CommonSearchParams
     >
   }
+
+  /** 商家运营台 */
+  namespace MerchantOps {
+    interface Member {
+      id: number
+      name: string
+      phone: string
+      channel: string
+      createdAt: string
+    }
+
+    interface Order {
+      id: number
+      orderNo: string
+      memberId: number
+      memberName: string
+      amountCents: number
+      status: string
+      source: string
+      paidAt?: string
+      createdAt: string
+    }
+
+    interface ChannelBreakdown {
+      channel: string
+      memberCount: number
+    }
+
+    interface Summary {
+      memberCount: number
+      orderCount: number
+      paidOrderCount: number
+      revenueCents: number
+      repurchaseCount: number
+      repurchaseRate: number
+      channelBreakdown: ChannelBreakdown[]
+    }
+
+    interface CreateMemberParams {
+      name: string
+      phone: string
+      channel: string
+    }
+
+    interface CreateOrderParams {
+      memberId: number
+      amountCents: number
+      source: string
+      status: 'pending' | 'paid' | 'refunded'
+      orderNo?: string
+    }
+  }
 }

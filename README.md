@@ -1,7 +1,7 @@
 # small-merchant-ops-hub
 
 ## Problem
-Describe the user problem this project solves.
+Small merchants need a low-cost private-domain operations hub to manage members, orders, campaigns, and repurchase metrics without expensive SaaS lock-in.
 
 ## Architecture
 - server: Go + Gin + GORM, sqlite(local) / pgsql(production), local cache(local) / redis(production)
@@ -13,3 +13,9 @@ Describe the user problem this project solves.
 2. Admin workflow integration
 3. Client workflow integration
 4. Automated release and templates
+
+## Current Scope Delivered
+- Server: member/order domain APIs with sqlite/pgsql and local/redis factories
+- Client: Nuxt 4 flow for create member, create order, and monitor repurchase KPI
+- Admin: dedicated merchant operations page wired to backend APIs
+- Automation: release workflow, issue templates, PR template

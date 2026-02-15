@@ -6,23 +6,25 @@ import (
 )
 
 type Config struct {
-	Env        string
-	Port       string
-	SQLitePath string
-	PGDSN      string
-	RedisURL   string
-	CacheMode  string
+	Env             string
+	Port            string
+	SQLitePath      string
+	PGDSN           string
+	RedisURL        string
+	CacheMode       string
+	CORSAllowOrigin string
 }
 
 func LoadFromEnv() Config {
 	env := getenv("APP_ENV", "local")
 	cfg := Config{
-		Env:        env,
-		Port:       getenv("PORT", "8080"),
-		SQLitePath: getenv("SQLITE_PATH", "./data/app.db"),
-		PGDSN:      getenv("PG_DSN", ""),
-		RedisURL:   getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
-		CacheMode:  getenv("CACHE_MODE", ""),
+		Env:             env,
+		Port:            getenv("PORT", "8080"),
+		SQLitePath:      getenv("SQLITE_PATH", "./data/app.db"),
+		PGDSN:           getenv("PG_DSN", ""),
+		RedisURL:        getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
+		CacheMode:       getenv("CACHE_MODE", ""),
+		CORSAllowOrigin: getenv("CORS_ALLOW_ORIGIN", "*"),
 	}
 
 	if cfg.CacheMode == "" {

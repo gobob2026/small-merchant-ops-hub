@@ -7,14 +7,15 @@ import (
 	"sync"
 	"time"
 
-	"small-merchant-ops-hub-server/internal/config"
 	"github.com/redis/go-redis/v9"
+	"small-merchant-ops-hub-server/internal/config"
 )
 
 type Store interface {
 	Ping(ctx context.Context) error
 	Get(ctx context.Context, key string) (string, bool, error)
 	Set(ctx context.Context, key, value string, ttl time.Duration) error
+	Delete(ctx context.Context, key string) error
 	Close() error
 }
 
@@ -60,6 +61,13 @@ func (l *localStore) Close() error {
 	return nil
 }
 
+func (l *localStore) Delete(_ context.Context, key string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.data, key)
+	return nil
+}
+
 type redisStore struct {
 	client *redis.Client
 }
@@ -93,4 +101,8 @@ func (r *redisStore) Set(ctx context.Context, key, value string, ttl time.Durati
 
 func (r *redisStore) Close() error {
 	return r.client.Close()
+}
+
+func (r *redisStore) Delete(ctx context.Context, key string) error {
+	return r.client.Del(ctx, key).Err()
 }

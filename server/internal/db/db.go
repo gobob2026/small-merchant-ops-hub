@@ -4,22 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
-	"small-merchant-ops-hub-server/internal/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"small-merchant-ops-hub-server/internal/config"
 )
-
-type KeyValue struct {
-	ID        uint      `gorm:"primaryKey"`
-	Key       string    `gorm:"size:100;uniqueIndex"`
-	Value     string    `gorm:"size:2000"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
 
 func Open(cfg config.Config) (*gorm.DB, error) {
 	var (
@@ -43,7 +34,7 @@ func Open(cfg config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	if err := database.AutoMigrate(&KeyValue{}); err != nil {
+	if err := database.AutoMigrate(&KeyValue{}, &Member{}, &Order{}); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 	return database, nil

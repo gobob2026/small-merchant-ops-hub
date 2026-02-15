@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# client build/runtime artifacts
+client/node_modules/
+client/.nuxt/
+client/.output/
+
+# server local runtime artifacts
+server/data/
