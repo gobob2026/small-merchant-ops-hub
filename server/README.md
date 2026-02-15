@@ -13,6 +13,10 @@ go run ./cmd/server
 
 ## Core APIs
 - `GET /healthz` health check
+- `POST /api/auth/login` admin login (`Super/Admin/User`, password `123456`)
+- `GET /api/user/info` current user profile + roles/buttons (requires `Authorization` token)
+- `GET /api/user/list` system user list (requires `Authorization` token)
+- `GET /api/role/list` system role list (requires `Authorization` token)
 - `GET /api/v1/members` list members
 - `POST /api/v1/members` create member
 - `GET /api/v1/orders` list orders

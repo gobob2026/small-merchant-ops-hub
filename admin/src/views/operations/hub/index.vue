@@ -78,7 +78,17 @@
                 <ElOption label="store" value="store" />
               </ElSelect>
             </ElFormItem>
-            <ElButton type="primary" :loading="loading" @click="submitMember">创建会员</ElButton>
+            <ElButton
+              type="primary"
+              :loading="loading"
+              :disabled="!canCreateMember"
+              @click="submitMember"
+            >
+              创建会员
+            </ElButton>
+            <ElTag v-if="!canCreateMember" type="info" effect="light">
+              当前账号无 member:create 权限
+            </ElTag>
           </ElForm>
         </ElCard>
       </ElCol>
@@ -114,7 +124,17 @@
                 <ElOption label="refunded" value="refunded" />
               </ElSelect>
             </ElFormItem>
-            <ElButton type="primary" :loading="loading" @click="submitOrder">创建订单</ElButton>
+            <ElButton
+              type="primary"
+              :loading="loading"
+              :disabled="!canCreateOrder"
+              @click="submitOrder"
+            >
+              创建订单
+            </ElButton>
+            <ElTag v-if="!canCreateOrder" type="info" effect="light">
+              当前账号无 order:create 权限
+            </ElTag>
           </ElForm>
         </ElCard>
       </ElCol>
@@ -155,10 +175,15 @@
                 <ElOption label="closed" value="closed" />
               </ElSelect>
             </ElFormItem>
-            <ElButton type="primary" :loading="loading" v-roles="'R_SUPER'" @click="submitCampaign">
+            <ElButton
+              v-if="canCreateCampaign"
+              type="primary"
+              :loading="loading"
+              @click="submitCampaign"
+            >
               创建活动
             </ElButton>
-            <ElTag v-roles="['R_ADMIN']" type="info" effect="light">R_ADMIN 仅可查看活动</ElTag>
+            <ElTag v-else type="info" effect="light">当前账号无 campaign:create 权限</ElTag>
           </ElForm>
         </ElCard>
       </ElCol>
@@ -225,11 +250,13 @@
               <ElSpace>
                 <span class="text-gray-500">窗口(天)</span>
                 <ElInputNumber v-model="followupDays" :min="1" :max="365" :step="1" size="small" />
-                <ElButton size="small" @click="refreshFollowups">刷新</ElButton>
+                <ElButton size="small" :disabled="!canViewFollowup" @click="refreshFollowups">
+                  刷新
+                </ElButton>
               </ElSpace>
             </div>
           </template>
-          <ElTable :data="followups.items" size="small">
+          <ElTable v-if="canViewFollowup" :data="followups.items" size="small">
             <ElTableColumn prop="memberName" label="会员" min-width="100" />
             <ElTableColumn prop="phone" label="手机号" min-width="120" />
             <ElTableColumn prop="channel" label="渠道" min-width="90" />
@@ -241,6 +268,11 @@
             </ElTableColumn>
             <ElTableColumn prop="daysSinceLastPay" label="距今天数" min-width="90" />
           </ElTable>
+          <ElEmpty
+            v-else
+            description="当前账号无 followup:view 权限"
+            :image-size="72"
+          />
         </ElCard>
       </ElCol>
     </ElRow>
@@ -272,7 +304,12 @@
               style="width: 180px"
             />
             <ElButton size="small" @click="refreshAttribution">查询</ElButton>
-            <ElButton size="small" type="success" v-roles="'R_SUPER'" @click="exportAttributionCsv">
+            <ElButton
+              size="small"
+              type="success"
+              :disabled="!canExportReport"
+              @click="exportAttributionCsv"
+            >
               导出 CSV
             </ElButton>
           </ElSpace>
@@ -315,11 +352,18 @@
     fetchMerchantSummary,
     getCampaignAttributionExportUrl
   } from '@/api/merchant-ops'
+  import { useAuth } from '@/hooks/core/useAuth'
 
   defineOptions({ name: 'MerchantOpsHub' })
 
+  const { hasAuth } = useAuth()
   const loading = ref(false)
   const followupDays = ref(30)
+  const canCreateMember = computed(() => hasAuth('member:create'))
+  const canCreateOrder = computed(() => hasAuth('order:create'))
+  const canCreateCampaign = computed(() => hasAuth('campaign:create'))
+  const canViewFollowup = computed(() => hasAuth('followup:view'))
+  const canExportReport = computed(() => hasAuth('report:export'))
 
   const members = ref<Api.MerchantOps.Member[]>([])
   const orders = ref<Api.MerchantOps.Order[]>([])
@@ -370,6 +414,10 @@
   })
 
   async function refreshFollowups() {
+    if (!canViewFollowup.value) {
+      ElMessage.warning('当前账号无 followup:view 权限')
+      return
+    }
     followups.value = await fetchMerchantFollowups({ days: followupDays.value, limit: 50 })
   }
 
@@ -380,13 +428,19 @@
   async function refreshAll() {
     loading.value = true
     try {
+      const followupDataPromise = canViewFollowup.value
+        ? fetchMerchantFollowups({ days: followupDays.value, limit: 50 })
+        : Promise.resolve<Api.MerchantOps.FollowupPayload>({
+            daysWindow: followupDays.value,
+            items: []
+          })
       const [summaryData, memberData, orderData, campaignData, followupData, attributionData] =
         await Promise.all([
           fetchMerchantSummary(),
           fetchMerchantMembers(),
           fetchMerchantOrders(),
           fetchMerchantCampaigns(),
-          fetchMerchantFollowups({ days: followupDays.value, limit: 50 }),
+          followupDataPromise,
           fetchCampaignAttribution(reportQuery)
         ])
       summary.value = summaryData
@@ -406,6 +460,10 @@
   }
 
   async function submitMember() {
+    if (!canCreateMember.value) {
+      ElMessage.warning('当前账号无 member:create 权限')
+      return
+    }
     if (!memberForm.name || !memberForm.phone || !memberForm.channel) {
       ElMessage.warning('请填写完整会员信息')
       return
@@ -426,6 +484,10 @@
   }
 
   async function submitOrder() {
+    if (!canCreateOrder.value) {
+      ElMessage.warning('当前账号无 order:create 权限')
+      return
+    }
     if (!orderForm.memberId) {
       ElMessage.warning('请选择会员')
       return
@@ -455,6 +517,10 @@
   }
 
   async function submitCampaign() {
+    if (!canCreateCampaign.value) {
+      ElMessage.warning('当前账号无 campaign:create 权限')
+      return
+    }
     if (!campaignForm.name || !campaignForm.channel || !campaignForm.discountPct) {
       ElMessage.warning('请填写完整活动信息')
       return
@@ -475,6 +541,10 @@
   }
 
   function exportAttributionCsv() {
+    if (!canExportReport.value) {
+      ElMessage.warning('当前账号无 report:export 权限')
+      return
+    }
     const url = getCampaignAttributionExportUrl(reportQuery)
     window.open(url, '_blank')
   }

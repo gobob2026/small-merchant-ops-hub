@@ -50,6 +50,7 @@ func NewRouter(db *gorm.DB, cacheStore cache.Store, cfg config.Config) *gin.Engi
 		})
 	})
 
+	registerAuthRoutes(router)
 	registerMerchantRoutes(router, db, cacheStore)
 
 	return router
