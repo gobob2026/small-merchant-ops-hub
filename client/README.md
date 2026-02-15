@@ -5,12 +5,14 @@
 
 ## Run
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 ## Runtime Config
-- `NUXT_PUBLIC_API_BASE` (default: `http://127.0.0.1:8080`)
+- `NUXT_PUBLIC_API_BASE`
+  - development default: `http://127.0.0.1:8080`
+  - production default: same-origin (empty base, e.g. `/api/...`)
 
 ## Available Flow
 - Create member (name/phone/channel)
