@@ -17,6 +17,10 @@ type Config struct {
 
 func LoadFromEnv() Config {
 	env := getenv("APP_ENV", "local")
+	corsDefault := "*"
+	if env != "local" {
+		corsDefault = ""
+	}
 	cfg := Config{
 		Env:             env,
 		Port:            getenv("PORT", "8080"),
@@ -24,7 +28,7 @@ func LoadFromEnv() Config {
 		PGDSN:           getenv("PG_DSN", ""),
 		RedisURL:        getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
 		CacheMode:       getenv("CACHE_MODE", ""),
-		CORSAllowOrigin: getenv("CORS_ALLOW_ORIGIN", "*"),
+		CORSAllowOrigin: getenv("CORS_ALLOW_ORIGIN", corsDefault),
 	}
 
 	if cfg.CacheMode == "" {
@@ -52,6 +56,12 @@ func (c Config) DatabaseDriver() string {
 func (c Config) Validate() error {
 	if !c.IsLocal() && c.PGDSN == "" {
 		return errors.New("PG_DSN is required when APP_ENV is not local")
+	}
+	if !c.IsLocal() && c.CORSAllowOrigin == "" {
+		return errors.New("CORS_ALLOW_ORIGIN is required when APP_ENV is not local")
+	}
+	if !c.IsLocal() && c.CORSAllowOrigin == "*" {
+		return errors.New("CORS_ALLOW_ORIGIN cannot be * when APP_ENV is not local")
 	}
 	if c.CacheMode != "local" && c.CacheMode != "redis" {
 		return errors.New("CACHE_MODE must be local or redis")

@@ -11,6 +11,12 @@ go mod tidy
 go run ./cmd/server
 ```
 
+## Required Env For Production
+- `APP_ENV=production`
+- `PG_DSN=<postgres dsn>`
+- `CACHE_MODE=redis` with `REDIS_URL=<redis url>` (or `CACHE_MODE=local` for single-node test)
+- `CORS_ALLOW_ORIGIN=<exact origin>`, wildcard `*` is rejected in non-local env
+
 ## Core APIs
 - `GET /healthz` health check
 - `POST /api/auth/login` admin login (`Super/Admin/User`, password `123456`; `User` is read-only operations role)
