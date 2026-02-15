@@ -3,9 +3,11 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"small-merchant-ops-hub-server/internal/cache"
@@ -54,6 +56,18 @@ type testFollowup struct {
 type testFollowupPayload struct {
 	DaysWindow int            `json:"daysWindow"`
 	Items      []testFollowup `json:"items"`
+}
+
+type testAttributionRow struct {
+	CampaignID           uint   `json:"campaignId"`
+	CampaignName         string `json:"campaignName"`
+	Channel              string `json:"channel"`
+	PaidOrderCount       int64  `json:"paidOrderCount"`
+	ConvertedMemberCount int64  `json:"convertedMemberCount"`
+}
+
+type testAttributionPayload struct {
+	Rows []testAttributionRow `json:"rows"`
 }
 
 func TestMerchantFlowSmoke(t *testing.T) {
@@ -193,6 +207,39 @@ func TestMerchantFlowSmoke(t *testing.T) {
 	if followupList.Data.Items[0].PaidOrderCount != 1 {
 		t.Fatalf("followup paidOrderCount = %d, want 1", followupList.Data.Items[0].PaidOrderCount)
 	}
+
+	attribution := performJSONRequest[testAttributionPayload](t, router, http.MethodGet, "/api/v1/reports/campaign-attribution", nil)
+	if len(attribution.Data.Rows) != 1 {
+		t.Fatalf("attribution rows = %d, want 1", len(attribution.Data.Rows))
+	}
+	if attribution.Data.Rows[0].CampaignID != campaign.Data.ID {
+		t.Fatalf("attribution campaignId = %d, want %d", attribution.Data.Rows[0].CampaignID, campaign.Data.ID)
+	}
+	if attribution.Data.Rows[0].Channel != "wechat" {
+		t.Fatalf("attribution channel = %s, want wechat", attribution.Data.Rows[0].Channel)
+	}
+	if attribution.Data.Rows[0].PaidOrderCount != 1 {
+		t.Fatalf("attribution paidOrderCount = %d, want 1", attribution.Data.Rows[0].PaidOrderCount)
+	}
+	if attribution.Data.Rows[0].ConvertedMemberCount != 1 {
+		t.Fatalf("attribution convertedMemberCount = %d, want 1", attribution.Data.Rows[0].ConvertedMemberCount)
+	}
+
+	csvResp := performRawRequest(t, router, http.MethodGet, "/api/v1/reports/campaign-attribution/export")
+	if !strings.Contains(csvResp.Header.Get("Content-Type"), "text/csv") {
+		t.Fatalf("csv content-type = %q, want text/csv", csvResp.Header.Get("Content-Type"))
+	}
+	bodyBytes, err := io.ReadAll(csvResp.Body)
+	if err != nil {
+		t.Fatalf("read csv body: %v", err)
+	}
+	body := string(bodyBytes)
+	if !strings.Contains(body, "campaign_id,campaign_name,channel,status") {
+		t.Fatalf("csv header not found: %s", body)
+	}
+	if !strings.Contains(body, "Spring Repurchase,wechat") {
+		t.Fatalf("csv row not found: %s", body)
+	}
 }
 
 func performJSONRequest[T any](
@@ -230,4 +277,16 @@ func performJSONRequest[T any](
 		t.Fatalf("decode response: %v", err)
 	}
 	return result
+}
+
+func performRawRequest(
+	t *testing.T,
+	router http.Handler,
+	method, target string,
+) *http.Response {
+	t.Helper()
+	req := httptest.NewRequest(method, target, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec.Result()
 }

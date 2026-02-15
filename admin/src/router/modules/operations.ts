@@ -18,7 +18,14 @@ export const operationsRoutes: AppRouteRecord = {
         title: '运营台',
         icon: 'ri:line-chart-line',
         keepAlive: false,
-        roles: ['R_SUPER', 'R_ADMIN']
+        roles: ['R_SUPER', 'R_ADMIN'],
+        authList: [
+          { title: '新增会员', authMark: 'member:create' },
+          { title: '新增订单', authMark: 'order:create' },
+          { title: '新增活动', authMark: 'campaign:create' },
+          { title: '查看跟进名单', authMark: 'followup:view' },
+          { title: '导出归因报表', authMark: 'report:export' }
+        ]
       }
     }
   ]

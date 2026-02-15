@@ -198,6 +198,25 @@ declare namespace Api {
       items: FollowupItem[]
     }
 
+    interface CampaignAttributionRow {
+      campaignId: number
+      campaignName: string
+      channel: string
+      status: string
+      startAt?: string
+      endAt?: string
+      targetMemberCount: number
+      paidOrderCount: number
+      convertedMemberCount: number
+      repurchaseConvertedCount: number
+      revenueCents: number
+      conversionRate: number
+    }
+
+    interface CampaignAttributionPayload {
+      rows: CampaignAttributionRow[]
+    }
+
     interface CreateMemberParams {
       name: string
       phone: string
@@ -225,6 +244,15 @@ declare namespace Api {
       days?: number
       limit?: number
       channel?: string
+    }
+
+    interface CampaignAttributionQueryParams {
+      status?: 'draft' | 'active' | 'closed'
+      channel?: string
+      q?: string
+      from?: string
+      to?: string
+      limit?: number
     }
   }
 }

@@ -16,7 +16,8 @@ Small merchants need a low-cost private-domain operations hub to manage members,
 
 ## Current Scope Delivered
 - Server: member/order/campaign APIs with sqlite/pgsql and local/redis factories
-- Server analytics: summary KPI + repurchase follow-up list endpoint
+- Server analytics: summary KPI + repurchase follow-up + campaign attribution report + CSV export
 - Client: Nuxt 4 flow for create member, create order, create campaign, and monitor repurchase KPI
-- Admin: dedicated merchant operations page wired to backend APIs (member/order/campaign/follow-up)
+- Admin: dedicated merchant operations page wired to backend APIs (member/order/campaign/follow-up/report)
+- Permissions: operations page refined with role-based actions (R_SUPER can export and create campaigns)
 - Automation: release workflow, issue templates, PR template

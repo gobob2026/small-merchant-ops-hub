@@ -1,7 +1,7 @@
 <template>
   <div class="merchant-ops-page">
     <h1 class="page-title">商家运营台</h1>
-    <p class="page-subtitle">会员、订单、活动、复购跟进统一操作与查看</p>
+    <p class="page-subtitle">会员、订单、活动、归因、复购跟进统一操作与查看</p>
 
     <ElRow :gutter="16" class="mb-4">
       <ElCol :xs="24" :sm="12" :lg="6">
@@ -121,7 +121,9 @@
 
       <ElCol :xs="24" :lg="8">
         <ElCard>
-          <template #header>新增活动</template>
+          <template #header>
+            <span>新增活动（仅超级管理员）</span>
+          </template>
           <ElForm label-width="90px" @submit.prevent>
             <ElFormItem label="名称">
               <ElInput
@@ -153,7 +155,10 @@
                 <ElOption label="closed" value="closed" />
               </ElSelect>
             </ElFormItem>
-            <ElButton type="primary" :loading="loading" @click="submitCampaign">创建活动</ElButton>
+            <ElButton type="primary" :loading="loading" v-roles="'R_SUPER'" @click="submitCampaign">
+              创建活动
+            </ElButton>
+            <ElTag v-roles="['R_ADMIN']" type="info" effect="light">R_ADMIN 仅可查看活动</ElTag>
           </ElForm>
         </ElCard>
       </ElCol>
@@ -194,7 +199,7 @@
       </ElCol>
     </ElRow>
 
-    <ElRow :gutter="16">
+    <ElRow :gutter="16" class="mb-4">
       <ElCol :xs="24" :lg="12">
         <ElCard>
           <template #header>活动列表</template>
@@ -239,12 +244,67 @@
         </ElCard>
       </ElCol>
     </ElRow>
+
+    <ElCard>
+      <template #header>
+        <div class="report-head">
+          <span>活动归因报表</span>
+          <ElSpace wrap>
+            <ElSelect v-model="reportQuery.status" clearable placeholder="状态" style="width: 110px">
+              <ElOption label="active" value="active" />
+              <ElOption label="draft" value="draft" />
+              <ElOption label="closed" value="closed" />
+            </ElSelect>
+            <ElSelect
+              v-model="reportQuery.channel"
+              clearable
+              placeholder="渠道"
+              style="width: 110px"
+            >
+              <ElOption label="wechat" value="wechat" />
+              <ElOption label="douyin" value="douyin" />
+              <ElOption label="store" value="store" />
+            </ElSelect>
+            <ElInput
+              v-model.trim="reportQuery.q"
+              clearable
+              placeholder="活动关键词"
+              style="width: 180px"
+            />
+            <ElButton size="small" @click="refreshAttribution">查询</ElButton>
+            <ElButton size="small" type="success" v-roles="'R_SUPER'" @click="exportAttributionCsv">
+              导出 CSV
+            </ElButton>
+          </ElSpace>
+        </div>
+      </template>
+      <ElTable :data="attribution.rows" size="small">
+        <ElTableColumn prop="campaignName" label="活动名" min-width="150" />
+        <ElTableColumn prop="channel" label="渠道" min-width="90" />
+        <ElTableColumn prop="status" label="状态" min-width="90" />
+        <ElTableColumn prop="targetMemberCount" label="目标会员" min-width="100" />
+        <ElTableColumn prop="paidOrderCount" label="支付单数" min-width="100" />
+        <ElTableColumn prop="convertedMemberCount" label="转化会员" min-width="100" />
+        <ElTableColumn prop="repurchaseConvertedCount" label="复购转化" min-width="100" />
+        <ElTableColumn label="营收" min-width="120">
+          <template #default="{ row }">
+            {{ formatAmount(row.revenueCents) }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="转化率" min-width="90">
+          <template #default="{ row }">
+            {{ row.conversionRate.toFixed(2) }}%
+          </template>
+        </ElTableColumn>
+      </ElTable>
+    </ElCard>
   </div>
 </template>
 
 <script setup lang="ts">
   import { ElMessage } from 'element-plus'
   import {
+    fetchCampaignAttribution,
     fetchCreateMerchantCampaign,
     fetchCreateMerchantMember,
     fetchCreateMerchantOrder,
@@ -252,7 +312,8 @@
     fetchMerchantFollowups,
     fetchMerchantMembers,
     fetchMerchantOrders,
-    fetchMerchantSummary
+    fetchMerchantSummary,
+    getCampaignAttributionExportUrl
   } from '@/api/merchant-ops'
 
   defineOptions({ name: 'MerchantOpsHub' })
@@ -267,6 +328,9 @@
     daysWindow: 30,
     items: []
   })
+  const attribution = ref<Api.MerchantOps.CampaignAttributionPayload>({
+    rows: []
+  })
   const summary = ref<Api.MerchantOps.Summary>({
     memberCount: 0,
     orderCount: 0,
@@ -276,6 +340,13 @@
     repurchaseRate: 0,
     activeCampaignCount: 0,
     channelBreakdown: []
+  })
+
+  const reportQuery = reactive<Api.MerchantOps.CampaignAttributionQueryParams>({
+    status: undefined,
+    channel: undefined,
+    q: '',
+    limit: 100
   })
 
   const memberForm = reactive<Api.MerchantOps.CreateMemberParams>({
@@ -302,21 +373,28 @@
     followups.value = await fetchMerchantFollowups({ days: followupDays.value, limit: 50 })
   }
 
+  async function refreshAttribution() {
+    attribution.value = await fetchCampaignAttribution(reportQuery)
+  }
+
   async function refreshAll() {
     loading.value = true
     try {
-      const [summaryData, memberData, orderData, campaignData, followupData] = await Promise.all([
-        fetchMerchantSummary(),
-        fetchMerchantMembers(),
-        fetchMerchantOrders(),
-        fetchMerchantCampaigns(),
-        fetchMerchantFollowups({ days: followupDays.value, limit: 50 })
-      ])
+      const [summaryData, memberData, orderData, campaignData, followupData, attributionData] =
+        await Promise.all([
+          fetchMerchantSummary(),
+          fetchMerchantMembers(),
+          fetchMerchantOrders(),
+          fetchMerchantCampaigns(),
+          fetchMerchantFollowups({ days: followupDays.value, limit: 50 }),
+          fetchCampaignAttribution(reportQuery)
+        ])
       summary.value = summaryData
       members.value = memberData
       orders.value = orderData
       campaigns.value = campaignData
       followups.value = followupData
+      attribution.value = attributionData
       if (members.value.length > 0 && orderForm.memberId === 0) {
         orderForm.memberId = members.value[0].id
       }
@@ -396,6 +474,11 @@
     }
   }
 
+  function exportAttributionCsv() {
+    const url = getCampaignAttributionExportUrl(reportQuery)
+    window.open(url, '_blank')
+  }
+
   function formatAmount(cents: number) {
     return new Intl.NumberFormat('zh-CN', {
       style: 'currency',
@@ -437,7 +520,8 @@
       }
     }
 
-    .followup-head {
+    .followup-head,
+    .report-head {
       display: flex;
       justify-content: space-between;
       align-items: center;

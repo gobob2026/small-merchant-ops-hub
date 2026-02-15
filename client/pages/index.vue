@@ -230,6 +230,64 @@
         </table>
       </article>
     </section>
+
+    <section class="grid">
+      <article class="panel">
+        <div class="row-head">
+          <h2>Campaign Attribution Report</h2>
+          <div class="inline-control">
+            <input
+              v-model.trim="reportQuery.q"
+              type="text"
+              placeholder="Campaign keyword"
+              style="width: 160px"
+            />
+            <select v-model="reportQuery.status">
+              <option value="">all status</option>
+              <option value="active">active</option>
+              <option value="draft">draft</option>
+              <option value="closed">closed</option>
+            </select>
+            <select v-model="reportQuery.channel">
+              <option value="">all channel</option>
+              <option value="wechat">wechat</option>
+              <option value="douyin">douyin</option>
+              <option value="store">store</option>
+            </select>
+            <button type="button" @click="refreshAttribution" :disabled="loading">Query</button>
+            <a class="link-btn" :href="attributionExportUrl" target="_blank" rel="noopener">CSV</a>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Campaign</th>
+              <th>Channel</th>
+              <th>Status</th>
+              <th>Target</th>
+              <th>Paid Orders</th>
+              <th>Converted</th>
+              <th>Repurchase</th>
+              <th>Revenue</th>
+              <th>Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in attribution.rows" :key="row.campaignId">
+              <td>{{ row.campaignName }}</td>
+              <td>{{ row.channel }}</td>
+              <td>{{ row.status }}</td>
+              <td>{{ row.targetMemberCount }}</td>
+              <td>{{ row.paidOrderCount }}</td>
+              <td>{{ row.convertedMemberCount }}</td>
+              <td>{{ row.repurchaseConvertedCount }}</td>
+              <td>{{ formatAmount(row.revenueCents) }}</td>
+              <td>{{ row.conversionRate.toFixed(2) }}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </section>
   </main>
 </template>
 
@@ -281,6 +339,23 @@ type FollowupPayload = {
   items: FollowupItem[]
 }
 
+type CampaignAttributionRow = {
+  campaignId: number
+  campaignName: string
+  channel: string
+  status: string
+  targetMemberCount: number
+  paidOrderCount: number
+  convertedMemberCount: number
+  repurchaseConvertedCount: number
+  revenueCents: number
+  conversionRate: number
+}
+
+type CampaignAttributionPayload = {
+  rows: CampaignAttributionRow[]
+}
+
 type ChannelBreakdown = {
   channel: string
   memberCount: number
@@ -311,6 +386,9 @@ const followups = ref<FollowupPayload>({
   items: []
 })
 const followupDays = ref(30)
+const attribution = ref<CampaignAttributionPayload>({
+  rows: []
+})
 
 const summary = ref<Summary>({
   memberCount: 0,
@@ -341,6 +419,12 @@ const campaignForm = reactive({
   channel: "wechat",
   discountPct: 10,
   status: "active" as "draft" | "active" | "closed"
+})
+
+const reportQuery = reactive({
+  q: "",
+  status: "",
+  channel: ""
 })
 
 async function requestApi<T>(path: string, options: Record<string, unknown> = {}) {
@@ -379,11 +463,29 @@ async function loadFollowups() {
   )
 }
 
+async function loadAttribution() {
+  const query = new URLSearchParams()
+  if (reportQuery.q) query.set("q", reportQuery.q)
+  if (reportQuery.status) query.set("status", reportQuery.status)
+  if (reportQuery.channel) query.set("channel", reportQuery.channel)
+  query.set("limit", "100")
+  attribution.value = await requestApi<CampaignAttributionPayload>(
+    `/api/v1/reports/campaign-attribution?${query.toString()}`
+  )
+}
+
 async function refreshAll() {
   loading.value = true
   errorMessage.value = ""
   try {
-    await Promise.all([loadMembers(), loadOrders(), loadCampaigns(), loadSummary(), loadFollowups()])
+    await Promise.all([
+      loadMembers(),
+      loadOrders(),
+      loadCampaigns(),
+      loadSummary(),
+      loadFollowups(),
+      loadAttribution()
+    ])
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Request failed"
   } finally {
@@ -396,6 +498,18 @@ async function refreshFollowups() {
   errorMessage.value = ""
   try {
     await loadFollowups()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Request failed"
+  } finally {
+    loading.value = false
+  }
+}
+
+async function refreshAttribution() {
+  loading.value = true
+  errorMessage.value = ""
+  try {
+    await loadAttribution()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Request failed"
   } finally {
@@ -487,6 +601,15 @@ function formatAmount(cents: number) {
 function formatTime(value: string) {
   return new Date(value).toLocaleString("zh-CN")
 }
+
+const attributionExportUrl = computed(() => {
+  const query = new URLSearchParams()
+  if (reportQuery.q) query.set("q", reportQuery.q)
+  if (reportQuery.status) query.set("status", reportQuery.status)
+  if (reportQuery.channel) query.set("channel", reportQuery.channel)
+  query.set("limit", "100")
+  return `${apiBase}/api/v1/reports/campaign-attribution/export?${query.toString()}`
+})
 
 onMounted(() => {
   refreshAll()
@@ -627,6 +750,15 @@ th {
 
 .inline-control input {
   width: 88px;
+}
+
+.link-btn {
+  border: 1px solid #111827;
+  color: #111827;
+  border-radius: 10px;
+  padding: 7px 12px;
+  text-decoration: none;
+  font-size: 13px;
 }
 
 @media (max-width: 1100px) {

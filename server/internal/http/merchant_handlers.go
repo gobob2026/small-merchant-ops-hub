@@ -1,10 +1,13 @@
 package http
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"math"
+	stdhttp "net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -103,6 +106,25 @@ type channelResponse struct {
 	MemberCount int64  `json:"memberCount"`
 }
 
+type campaignAttributionRow struct {
+	CampaignID               uint       `json:"campaignId"`
+	CampaignName             string     `json:"campaignName"`
+	Channel                  string     `json:"channel"`
+	Status                   string     `json:"status"`
+	StartAt                  *time.Time `json:"startAt"`
+	EndAt                    *time.Time `json:"endAt"`
+	TargetMemberCount        int64      `json:"targetMemberCount"`
+	PaidOrderCount           int64      `json:"paidOrderCount"`
+	ConvertedMemberCount     int64      `json:"convertedMemberCount"`
+	RepurchaseConvertedCount int64      `json:"repurchaseConvertedCount"`
+	RevenueCents             int64      `json:"revenueCents"`
+	ConversionRate           float64    `json:"conversionRate"`
+}
+
+type campaignAttributionPayload struct {
+	Rows []campaignAttributionRow `json:"rows"`
+}
+
 func registerMerchantRoutes(router *gin.Engine, database *gorm.DB, cacheStore cache.Store) {
 	api := router.Group("/api/v1")
 	{
@@ -116,6 +138,8 @@ func registerMerchantRoutes(router *gin.Engine, database *gorm.DB, cacheStore ca
 		api.POST("/campaigns", createCampaignHandler(database, cacheStore))
 
 		api.GET("/followups", listFollowupsHandler(database))
+		api.GET("/reports/campaign-attribution", campaignAttributionHandler(database))
+		api.GET("/reports/campaign-attribution/export", campaignAttributionCSVHandler(database))
 		api.GET("/summary", summaryHandler(database, cacheStore))
 	}
 }
@@ -560,6 +584,45 @@ func summaryHandler(database *gorm.DB, cacheStore cache.Store) gin.HandlerFunc {
 	}
 }
 
+func campaignAttributionHandler(database *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		defer cancel()
+
+		rows, err := loadCampaignAttributionRows(ctx, database, c)
+		if err != nil {
+			fail(c, 500, err.Error())
+			return
+		}
+		ok(c, campaignAttributionPayload{
+			Rows: rows,
+		})
+	}
+}
+
+func campaignAttributionCSVHandler(database *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		defer cancel()
+
+		rows, err := loadCampaignAttributionRows(ctx, database, c)
+		if err != nil {
+			fail(c, 500, err.Error())
+			return
+		}
+
+		content, err := buildCampaignAttributionCSV(rows)
+		if err != nil {
+			fail(c, 500, "build csv failed")
+			return
+		}
+
+		c.Header("Content-Type", "text/csv; charset=utf-8")
+		c.Header("Content-Disposition", "attachment; filename=campaign-attribution.csv")
+		c.String(stdhttp.StatusOK, content)
+	}
+}
+
 func toMemberResponse(member db.Member) memberResponse {
 	return memberResponse{
 		ID:        member.ID,
@@ -694,4 +757,181 @@ func setSummaryToCache(ctx context.Context, cacheStore cache.Store, payload summ
 		return
 	}
 	_ = cacheStore.Set(ctx, summaryCacheKey, string(raw), 45*time.Second)
+}
+
+func loadCampaignAttributionRows(
+	ctx context.Context,
+	database *gorm.DB,
+	c *gin.Context,
+) ([]campaignAttributionRow, error) {
+	limit := parseLimit(c.Query("limit"), 100)
+	status := strings.TrimSpace(strings.ToLower(c.Query("status")))
+	channel := strings.TrimSpace(c.Query("channel"))
+	keyword := strings.TrimSpace(c.Query("q"))
+
+	from, err := parseOptionalRFC3339(c.Query("from"))
+	if err != nil {
+		return nil, fmt.Errorf("from must be RFC3339 format")
+	}
+	to, err := parseOptionalRFC3339(c.Query("to"))
+	if err != nil {
+		return nil, fmt.Errorf("to must be RFC3339 format")
+	}
+	if from != nil && to != nil && to.Before(*from) {
+		return nil, fmt.Errorf("to cannot be earlier than from")
+	}
+
+	query := database.WithContext(ctx).Model(&db.Campaign{}).Order("id DESC").Limit(limit)
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if channel != "" {
+		query = query.Where("channel = ?", channel)
+	}
+	if keyword != "" {
+		query = query.Where("name LIKE ?", "%"+keyword+"%")
+	}
+	if from != nil {
+		query = query.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		query = query.Where("created_at <= ?", *to)
+	}
+
+	campaigns := make([]db.Campaign, 0, limit)
+	if err := query.Find(&campaigns).Error; err != nil {
+		return nil, fmt.Errorf("list campaigns failed")
+	}
+
+	repurchaseMembersSubQuery := database.WithContext(ctx).
+		Model(&db.Order{}).
+		Select("member_id").
+		Where("status = ?", "paid").
+		Group("member_id").
+		Having("COUNT(*) >= 2")
+
+	rows := make([]campaignAttributionRow, 0, len(campaigns))
+	for _, campaign := range campaigns {
+		var targetMemberCount int64
+		if err := database.WithContext(ctx).
+			Model(&db.Member{}).
+			Where("channel = ?", campaign.Channel).
+			Count(&targetMemberCount).Error; err != nil {
+			return nil, fmt.Errorf("count target members failed")
+		}
+
+		orderScope := database.WithContext(ctx).
+			Model(&db.Order{}).
+			Where("status = ? AND source = ?", "paid", campaign.Channel)
+		if campaign.StartAt != nil {
+			orderScope = orderScope.Where("paid_at >= ?", *campaign.StartAt)
+		}
+		if campaign.EndAt != nil {
+			orderScope = orderScope.Where("paid_at <= ?", *campaign.EndAt)
+		}
+
+		var paidOrderCount int64
+		if err := orderScope.Count(&paidOrderCount).Error; err != nil {
+			return nil, fmt.Errorf("count paid orders failed")
+		}
+
+		type revenueAgg struct {
+			RevenueCents int64 `gorm:"column:revenue_cents"`
+		}
+		var revenue revenueAgg
+		if err := orderScope.Select("COALESCE(SUM(amount_cents), 0) AS revenue_cents").Scan(&revenue).Error; err != nil {
+			return nil, fmt.Errorf("aggregate revenue failed")
+		}
+
+		var convertedMemberCount int64
+		if err := orderScope.Distinct("member_id").Count(&convertedMemberCount).Error; err != nil {
+			return nil, fmt.Errorf("count converted members failed")
+		}
+
+		var repurchaseConvertedCount int64
+		if err := orderScope.
+			Where("member_id IN (?)", repurchaseMembersSubQuery).
+			Distinct("member_id").
+			Count(&repurchaseConvertedCount).Error; err != nil {
+			return nil, fmt.Errorf("count repurchase converted members failed")
+		}
+
+		conversionRate := 0.0
+		if targetMemberCount > 0 {
+			conversionRate = math.Round((float64(convertedMemberCount)/float64(targetMemberCount))*10000) / 100
+		}
+
+		rows = append(rows, campaignAttributionRow{
+			CampaignID:               campaign.ID,
+			CampaignName:             campaign.Name,
+			Channel:                  campaign.Channel,
+			Status:                   campaign.Status,
+			StartAt:                  campaign.StartAt,
+			EndAt:                    campaign.EndAt,
+			TargetMemberCount:        targetMemberCount,
+			PaidOrderCount:           paidOrderCount,
+			ConvertedMemberCount:     convertedMemberCount,
+			RepurchaseConvertedCount: repurchaseConvertedCount,
+			RevenueCents:             revenue.RevenueCents,
+			ConversionRate:           conversionRate,
+		})
+	}
+
+	return rows, nil
+}
+
+func buildCampaignAttributionCSV(rows []campaignAttributionRow) (string, error) {
+	buffer := bytes.NewBuffer(nil)
+	writer := csv.NewWriter(buffer)
+
+	header := []string{
+		"campaign_id",
+		"campaign_name",
+		"channel",
+		"status",
+		"start_at",
+		"end_at",
+		"target_member_count",
+		"paid_order_count",
+		"converted_member_count",
+		"repurchase_converted_count",
+		"revenue_cents",
+		"conversion_rate",
+	}
+	if err := writer.Write(header); err != nil {
+		return "", err
+	}
+
+	for _, row := range rows {
+		record := []string{
+			strconv.FormatUint(uint64(row.CampaignID), 10),
+			row.CampaignName,
+			row.Channel,
+			row.Status,
+			formatRFC3339(row.StartAt),
+			formatRFC3339(row.EndAt),
+			strconv.FormatInt(row.TargetMemberCount, 10),
+			strconv.FormatInt(row.PaidOrderCount, 10),
+			strconv.FormatInt(row.ConvertedMemberCount, 10),
+			strconv.FormatInt(row.RepurchaseConvertedCount, 10),
+			strconv.FormatInt(row.RevenueCents, 10),
+			strconv.FormatFloat(row.ConversionRate, 'f', 2, 64),
+		}
+		if err := writer.Write(record); err != nil {
+			return "", err
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+	return buffer.String(), nil
+}
+
+func formatRFC3339(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }

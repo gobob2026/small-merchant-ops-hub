@@ -51,3 +51,27 @@ export function fetchMerchantFollowups(params?: Api.MerchantOps.FollowupQueryPar
     params
   })
 }
+
+export function fetchCampaignAttribution(params?: Api.MerchantOps.CampaignAttributionQueryParams) {
+  return request.get<Api.MerchantOps.CampaignAttributionPayload>({
+    url: '/api/v1/reports/campaign-attribution',
+    params
+  })
+}
+
+export function getCampaignAttributionExportUrl(
+  params?: Api.MerchantOps.CampaignAttributionQueryParams
+) {
+  const query = new URLSearchParams()
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        query.set(key, String(value))
+      }
+    })
+  }
+  const suffix = query.toString()
+  return suffix
+    ? `/api/v1/reports/campaign-attribution/export?${suffix}`
+    : '/api/v1/reports/campaign-attribution/export'
+}
