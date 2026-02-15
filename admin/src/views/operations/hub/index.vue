@@ -268,11 +268,7 @@
             </ElTableColumn>
             <ElTableColumn prop="daysSinceLastPay" label="距今天数" min-width="90" />
           </ElTable>
-          <ElEmpty
-            v-else
-            description="当前账号无 followup:view 权限"
-            :image-size="72"
-          />
+          <ElEmpty v-else description="当前账号无 followup:view 权限" :image-size="72" />
         </ElCard>
       </ElCol>
     </ElRow>
@@ -282,7 +278,12 @@
         <div class="report-head">
           <span>活动归因报表</span>
           <ElSpace wrap>
-            <ElSelect v-model="reportQuery.status" clearable placeholder="状态" style="width: 110px">
+            <ElSelect
+              v-model="reportQuery.status"
+              clearable
+              placeholder="状态"
+              style="width: 110px"
+            >
               <ElOption label="active" value="active" />
               <ElOption label="draft" value="draft" />
               <ElOption label="closed" value="closed" />
@@ -329,9 +330,7 @@
           </template>
         </ElTableColumn>
         <ElTableColumn label="转化率" min-width="90">
-          <template #default="{ row }">
-            {{ row.conversionRate.toFixed(2) }}%
-          </template>
+          <template #default="{ row }"> {{ row.conversionRate.toFixed(2) }}% </template>
         </ElTableColumn>
       </ElTable>
     </ElCard>
