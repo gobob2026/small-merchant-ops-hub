@@ -40,6 +40,8 @@ type authMenuRoute struct {
 
 func TestAuthRoutesSmoke(t *testing.T) {
 	t.Parallel()
+	resetAuthStateForTest()
+	t.Cleanup(resetAuthStateForTest)
 
 	cfg := config.Config{
 		Env:             "local",
@@ -132,6 +134,55 @@ func TestAuthRoutesSmoke(t *testing.T) {
 		t.Fatalf("super buttons missing report:export: %+v", superInfo.Data.Buttons)
 	}
 
+	superRefreshed := performJSONRequestWithHeaders[authLoginData](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/refresh",
+		map[string]string{
+			"refreshToken": superLogin.Data.RefreshToken,
+		},
+		nil,
+	)
+	if superRefreshed.Code != 200 {
+		t.Fatalf("super refresh code = %d, msg = %s", superRefreshed.Code, superRefreshed.Msg)
+	}
+	if superRefreshed.Data.Token == "" || superRefreshed.Data.RefreshToken == "" {
+		t.Fatalf("super refresh token or refreshToken is empty")
+	}
+	if superRefreshed.Data.Token == superLogin.Data.Token {
+		t.Fatalf("refreshed access token should differ from old token")
+	}
+	if superRefreshed.Data.RefreshToken == superLogin.Data.RefreshToken {
+		t.Fatalf("refreshed refresh token should differ from old refresh token")
+	}
+
+	superRefreshOldToken := performJSONRequestWithHeaders[map[string]interface{}](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/refresh",
+		map[string]string{
+			"refreshToken": superLogin.Data.RefreshToken,
+		},
+		nil,
+	)
+	if superRefreshOldToken.Code != 401 {
+		t.Fatalf("old refresh token code = %d, want 401", superRefreshOldToken.Code)
+	}
+
+	invalidRefreshPayload := performJSONRequestWithHeaders[map[string]interface{}](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/refresh",
+		map[string]string{},
+		nil,
+	)
+	if invalidRefreshPayload.Code != 400 {
+		t.Fatalf("invalid refresh payload code = %d, want 400", invalidRefreshPayload.Code)
+	}
+
 	logoutResult := performJSONRequestWithHeaders[map[string]bool](
 		t,
 		router,
@@ -157,6 +208,20 @@ func TestAuthRoutesSmoke(t *testing.T) {
 	)
 	if superInfoAfterLogout.Code != 401 {
 		t.Fatalf("super info after logout code = %d, want 401", superInfoAfterLogout.Code)
+	}
+
+	refreshAfterLogout := performJSONRequestWithHeaders[map[string]interface{}](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/refresh",
+		map[string]string{
+			"refreshToken": superRefreshed.Data.RefreshToken,
+		},
+		nil,
+	)
+	if refreshAfterLogout.Code != 401 {
+		t.Fatalf("refresh after logout code = %d, want 401", refreshAfterLogout.Code)
 	}
 
 	logoutWithoutToken := performJSONRequestWithHeaders[map[string]bool](
@@ -204,6 +269,37 @@ func TestAuthRoutesSmoke(t *testing.T) {
 	)
 	if expiredInfo.Code != 401 {
 		t.Fatalf("expired token code = %d, want 401", expiredInfo.Code)
+	}
+
+	originalRefreshTTL := refreshSessionTTL
+	refreshSessionTTL = -1 * time.Second
+	expiredRefreshLogin := performJSONRequestWithHeaders[authLoginData](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]string{
+			"userName": "Super",
+			"password": "123456",
+		},
+		nil,
+	)
+	refreshSessionTTL = originalRefreshTTL
+	if expiredRefreshLogin.Code != 200 {
+		t.Fatalf("expired refresh login code = %d, msg = %s", expiredRefreshLogin.Code, expiredRefreshLogin.Msg)
+	}
+	expiredRefresh := performJSONRequestWithHeaders[map[string]interface{}](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/refresh",
+		map[string]string{
+			"refreshToken": expiredRefreshLogin.Data.RefreshToken,
+		},
+		nil,
+	)
+	if expiredRefresh.Code != 401 {
+		t.Fatalf("expired refresh token code = %d, want 401", expiredRefresh.Code)
 	}
 
 	adminLogin := performJSONRequestWithHeaders[authLoginData](
@@ -480,4 +576,11 @@ func findMenuByPath(items []authMenuRoute, targetPath string) *authMenuRoute {
 		}
 	}
 	return nil
+}
+
+func resetAuthStateForTest() {
+	authSessionsMu.Lock()
+	defer authSessionsMu.Unlock()
+	authSessions = map[string]authSessionEntry{}
+	refreshSessions = map[string]authSessionEntry{}
 }

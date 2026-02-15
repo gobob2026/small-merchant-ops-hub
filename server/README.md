@@ -21,11 +21,13 @@ go run ./cmd/server
 - `GET /healthz` health check
 - `POST /api/auth/login` admin login (`Super/Admin/User`, password `123456`; `User` is read-only operations role)
 - `POST /api/auth/logout` revoke current session token (idempotent)
+- `POST /api/auth/refresh` rotate access token and refresh token (`refreshToken` required)
 - `GET /api/user/info` current user profile + roles/buttons (requires `Authorization` token)
 - `GET /api/user/list` system user list (requires `Authorization` token)
 - `GET /api/role/list` system role list (requires `Authorization` token)
 - `GET /api/v3/system/menus` backend-mode menu list (requires `Authorization` token)
 - Auth token session is in-memory with default 24h TTL
+- Refresh token session is in-memory with default 7d TTL (rotated on each refresh, revoked on logout)
 - `GET /api/v1/members` list members
 - `POST /api/v1/members` create member
 - `GET /api/v1/orders` list orders

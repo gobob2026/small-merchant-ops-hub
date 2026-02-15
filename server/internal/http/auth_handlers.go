@@ -17,6 +17,10 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+type refreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+
 type authSession struct {
 	UserID   int      `json:"userId"`
 	UserName string   `json:"userName"`
@@ -87,14 +91,17 @@ type authSessionEntry struct {
 }
 
 var (
-	authSessionTTL = 24 * time.Hour
-	authSessions   = map[string]authSessionEntry{}
-	authSessionsMu sync.RWMutex
+	authSessionTTL    = 24 * time.Hour
+	refreshSessionTTL = 7 * 24 * time.Hour
+	authSessions      = map[string]authSessionEntry{}
+	refreshSessions   = map[string]authSessionEntry{}
+	authSessionsMu    sync.RWMutex
 )
 
 func registerAuthRoutes(router *gin.Engine) {
 	router.POST("/api/auth/login", loginHandler)
 	router.POST("/api/auth/logout", logoutHandler)
+	router.POST("/api/auth/refresh", refreshTokenHandler)
 	router.GET("/api/user/info", userInfoHandler)
 	router.GET("/api/user/list", userListHandler)
 	router.GET("/api/role/list", roleListHandler)
@@ -128,6 +135,7 @@ func loginHandler(c *gin.Context) {
 	token := newToken("token")
 	refreshToken := newToken("refresh")
 	saveSession(token, session)
+	saveRefreshSession(refreshToken, session)
 
 	ok(c, gin.H{
 		"token":        token,
@@ -138,10 +146,44 @@ func loginHandler(c *gin.Context) {
 func logoutHandler(c *gin.Context) {
 	token := parseAuthToken(c.GetHeader("Authorization"))
 	if token != "" {
+		session, found := currentSession(c)
+		if found {
+			removeRefreshSessionsByUserID(session.UserID)
+		}
 		removeSession(token)
 	}
 	ok(c, gin.H{
 		"success": true,
+	})
+}
+
+func refreshTokenHandler(c *gin.Context) {
+	var req refreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, 400, "invalid refresh payload")
+		return
+	}
+	req.RefreshToken = strings.TrimSpace(req.RefreshToken)
+	if req.RefreshToken == "" {
+		fail(c, 400, "refreshToken is required")
+		return
+	}
+
+	session, found := currentRefreshSession(req.RefreshToken)
+	if !found {
+		fail(c, 401, "invalid refresh token")
+		return
+	}
+
+	removeRefreshSession(req.RefreshToken)
+	token := newToken("token")
+	refreshToken := newToken("refresh")
+	saveSession(token, session)
+	saveRefreshSession(refreshToken, session)
+
+	ok(c, gin.H{
+		"token":        token,
+		"refreshToken": refreshToken,
 	})
 }
 
@@ -356,6 +398,45 @@ func removeSession(token string) {
 	authSessionsMu.Lock()
 	defer authSessionsMu.Unlock()
 	delete(authSessions, token)
+}
+
+func currentRefreshSession(refreshToken string) (authSession, bool) {
+	authSessionsMu.RLock()
+	entry, ok := refreshSessions[refreshToken]
+	authSessionsMu.RUnlock()
+	if !ok {
+		return authSession{}, false
+	}
+	if time.Now().After(entry.ExpiresAt) {
+		removeRefreshSession(refreshToken)
+		return authSession{}, false
+	}
+	return entry.Session, true
+}
+
+func saveRefreshSession(refreshToken string, session authSession) {
+	authSessionsMu.Lock()
+	defer authSessionsMu.Unlock()
+	refreshSessions[refreshToken] = authSessionEntry{
+		Session:   session,
+		ExpiresAt: time.Now().Add(refreshSessionTTL),
+	}
+}
+
+func removeRefreshSession(refreshToken string) {
+	authSessionsMu.Lock()
+	defer authSessionsMu.Unlock()
+	delete(refreshSessions, refreshToken)
+}
+
+func removeRefreshSessionsByUserID(userID int) {
+	authSessionsMu.Lock()
+	defer authSessionsMu.Unlock()
+	for token, entry := range refreshSessions {
+		if entry.Session.UserID == userID {
+			delete(refreshSessions, token)
+		}
+	}
 }
 
 func parseAuthToken(raw string) string {
