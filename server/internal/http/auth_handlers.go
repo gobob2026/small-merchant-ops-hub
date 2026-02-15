@@ -420,7 +420,7 @@ func baseSystemMenus() []menuRoute {
 			Meta: menuMeta{
 				Title: "商家运营",
 				Icon:  "ri:store-2-line",
-				Roles: []string{"R_SUPER", "R_ADMIN"},
+				Roles: []string{"R_SUPER", "R_ADMIN", "R_USER"},
 			},
 			Children: []menuRoute{
 				{
@@ -431,7 +431,7 @@ func baseSystemMenus() []menuRoute {
 						Title:     "运营台",
 						Icon:      "ri:line-chart-line",
 						KeepAlive: false,
-						Roles:     []string{"R_SUPER", "R_ADMIN"},
+						Roles:     []string{"R_SUPER", "R_ADMIN", "R_USER"},
 						AuthList: []authMarkItem{
 							{Title: "新增会员", AuthMark: "member:create"},
 							{Title: "新增订单", AuthMark: "order:create"},

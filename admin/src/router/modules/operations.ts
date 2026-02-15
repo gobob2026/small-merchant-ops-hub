@@ -7,7 +7,7 @@ export const operationsRoutes: AppRouteRecord = {
   meta: {
     title: '商家运营',
     icon: 'ri:store-2-line',
-    roles: ['R_SUPER', 'R_ADMIN']
+    roles: ['R_SUPER', 'R_ADMIN', 'R_USER']
   },
   children: [
     {
@@ -18,7 +18,7 @@ export const operationsRoutes: AppRouteRecord = {
         title: '运营台',
         icon: 'ri:line-chart-line',
         keepAlive: false,
-        roles: ['R_SUPER', 'R_ADMIN'],
+        roles: ['R_SUPER', 'R_ADMIN', 'R_USER'],
         authList: [
           { title: '新增会员', authMark: 'member:create' },
           { title: '新增订单', authMark: 'order:create' },

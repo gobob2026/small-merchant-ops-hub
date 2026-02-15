@@ -231,6 +231,70 @@ func TestAuthRoutesSmoke(t *testing.T) {
 		t.Fatalf("admin system children should not include menu")
 	}
 
+	userLogin := performJSONRequestWithHeaders[authLoginData](
+		t,
+		router,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]string{
+			"userName": "User",
+			"password": "123456",
+		},
+		nil,
+	)
+	if userLogin.Code != 200 {
+		t.Fatalf("user login code = %d, msg = %s", userLogin.Code, userLogin.Msg)
+	}
+	if userLogin.Data.Token == "" {
+		t.Fatalf("user login token is empty")
+	}
+
+	userInfo := performJSONRequestWithHeaders[authSession](
+		t,
+		router,
+		http.MethodGet,
+		"/api/user/info",
+		nil,
+		map[string]string{
+			"Authorization": userLogin.Data.Token,
+		},
+	)
+	if userInfo.Code != 200 {
+		t.Fatalf("user info code = %d, msg = %s", userInfo.Code, userInfo.Msg)
+	}
+	if userInfo.Data.UserName != "User" {
+		t.Fatalf("user userName = %s, want User", userInfo.Data.UserName)
+	}
+	if !containsString(userInfo.Data.Buttons, "followup:view") {
+		t.Fatalf("user buttons missing followup:view: %+v", userInfo.Data.Buttons)
+	}
+	if containsString(userInfo.Data.Buttons, "member:create") {
+		t.Fatalf("user buttons should not include member:create: %+v", userInfo.Data.Buttons)
+	}
+
+	userMenus := performJSONRequestWithHeaders[[]authMenuRoute](
+		t,
+		router,
+		http.MethodGet,
+		"/api/v3/system/menus",
+		nil,
+		map[string]string{
+			"Authorization": userLogin.Data.Token,
+		},
+	)
+	if userMenus.Code != 200 {
+		t.Fatalf("user menus code = %d, msg = %s", userMenus.Code, userMenus.Msg)
+	}
+	if !containsMenuPath(userMenus.Data, "/operations") {
+		t.Fatalf("user menus missing /operations")
+	}
+	if containsMenuPath(userMenus.Data, "/dashboard") {
+		t.Fatalf("user menus should not include /dashboard")
+	}
+	if containsMenuPath(userMenus.Data, "/system") {
+		t.Fatalf("user menus should not include /system")
+	}
+
 	users := performJSONRequestWithHeaders[authPaginated[userListItem]](
 		t,
 		router,
