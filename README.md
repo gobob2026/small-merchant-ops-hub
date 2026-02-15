@@ -21,5 +21,6 @@ Small merchants need a low-cost private-domain operations hub to manage members,
 - Server backend-mode menu endpoint: `/api/v3/system/menus`
 - Client: Nuxt 4 flow for create member, create order, create campaign, and monitor repurchase KPI
 - Admin: dedicated merchant operations page wired to backend APIs (member/order/campaign/follow-up/report)
+- Admin auth lifecycle: 401 responses now trigger one-time token refresh via `/api/auth/refresh`, then retry the original request
 - Permissions: operations page uses route meta + button auth marks (`member:create`, `order:create`, `campaign:create`, `followup:view`, `report:export`), and supports `R_USER` read-only access
 - Automation: release workflow, issue templates, PR template
